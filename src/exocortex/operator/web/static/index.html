@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exocortex — live dashboard</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="dash-body" data-density="comfortable">
+  <header class="app-header">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="brand"><span class="glyph">[*]</span>Exocortex</div>
+      <nav>
+        <a href="/" class="active">dashboard</a>
+        <a href="/memory">constellation</a>
+        <a href="/tasks">tasks</a>
+        <a href="/static/agents.html">agents</a>
+        <a href="/chat">chat</a>
+        <a href="/static/conversations.html">conversations</a>
+        <a href="/static/profile.html">profile</a>
+        <a href="/static/debug.html">debug</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="status-strip" id="status-strip">
+        <span class="kpi"><span id="kpi-ws-dot" style="color: var(--danger);">●</span> <span id="kpi-ws">offline</span></span>
+        <span class="kpi"><span class="num alive" id="kpi-eps">0.0</span>ev/s</span>
+      </div>
+      <button type="button" class="dash-density" id="dash-density" title="toggle density">
+        <span class="label" id="dash-density-label">comfortable</span>
+      </button>
+      <button type="button" class="mem-toggle off" id="mem-toggle" aria-label="memory chat toggle" title="Toggle memory chat">
+        <span class="label">memory&nbsp;chat</span>
+        <span class="switch">
+          <span class="on">ON</span>
+          <span class="off">OFF</span>
+        </span>
+      </button>
+    </div>
+  </header>
+
+  <main class="dash-v2">
+    <!-- KPI strip -->
+    <section class="dash-kpis" id="dash-kpis" aria-label="dashboard kpis">
+      <div class="dash-kpi" data-metric="tasks">
+        <div class="kpi-label">tasks</div>
+        <div class="kpi-row">
+          <div class="kpi-num" id="kpi-tasks">—</div>
+          <svg class="kpi-spark" id="kpi-tasks-spark" width="60" height="14" aria-hidden="true"></svg>
+        </div>
+        <div class="kpi-delta" id="kpi-tasks-delta">&nbsp;</div>
+      </div>
+
+      <div class="dash-kpi" data-metric="events">
+        <div class="kpi-label">events / hr</div>
+        <div class="kpi-row">
+          <div class="kpi-num" id="kpi-events-hr">—</div>
+          <svg class="kpi-spark" id="kpi-events-spark" width="60" height="14" aria-hidden="true"></svg>
+        </div>
+        <div class="kpi-delta" id="kpi-events-delta">&nbsp;</div>
+      </div>
+
+      <div class="dash-kpi" data-metric="records">
+        <div class="kpi-label">records</div>
+        <div class="kpi-row">
+          <div class="kpi-num" id="kpi-records">—</div>
+          <svg class="kpi-spark" id="kpi-records-spark" width="60" height="14" aria-hidden="true"></svg>
+        </div>
+        <div class="kpi-delta" id="kpi-records-delta">&nbsp;</div>
+      </div>
+
+      <div class="dash-kpi" data-metric="agents">
+        <div class="kpi-label">active agents</div>
+        <div class="kpi-row">
+          <div class="kpi-num" id="kpi-agents">—</div>
+          <svg class="kpi-spark" id="kpi-agents-spark" width="60" height="14" aria-hidden="true"></svg>
+        </div>
+        <div class="kpi-delta" id="kpi-agents-delta">&nbsp;</div>
+      </div>
+
+      <div class="dash-kpi attention" data-metric="attention" id="kpi-attention-card">
+        <div class="kpi-label">attention</div>
+        <div class="kpi-row">
+          <div class="kpi-num" id="kpi-attention">0</div>
+          <span class="kpi-glyph" id="kpi-attention-glyph">●</span>
+        </div>
+        <div class="kpi-delta" id="kpi-attention-delta">all clear</div>
+      </div>
+    </section>
+
+    <!-- Attention panel -->
+    <section class="dash-panel attn-panel" id="attn-panel" aria-label="needs your attention">
+      <div class="dash-panel-head">
+        <h2>
+          <span class="glyph">⚠</span>
+          <span class="title">needs your attention</span>
+          <span class="count" id="attn-count">0</span>
+        </h2>
+        <button type="button" class="dash-collapse" id="attn-collapse" title="collapse" aria-expanded="true">▼</button>
+      </div>
+      <div class="dash-panel-body" id="attn-body">
+        <div class="attn-list" id="attn-list"></div>
+        <div class="attn-empty" id="attn-empty">
+          <span class="dot">●</span>
+          <span class="txt">all clear</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3-column row: happening + grown + chains side-by-side. Keeps
+         everything above the fold on typical laptop widths; stacks
+         vertically below 1100px. -->
+    <section class="dash-row dash-row-3col">
+      <section class="dash-panel happening-panel" aria-label="what's happening now">
+        <div class="dash-panel-head">
+          <h2>
+            <span class="glyph">▶</span>
+            <span class="title">what's happening now</span>
+          </h2>
+          <div class="happen-controls">
+            <select id="happen-agent-filter" class="dash-select" aria-label="agent filter">
+              <option value="all">all agents</option>
+              <option value="active">active only</option>
+            </select>
+            <label class="dash-check"><input type="checkbox" id="happen-pause" /> pause</label>
+          </div>
+        </div>
+        <div class="dash-panel-body">
+          <div class="happen-section">
+            <div class="happen-h">active agents</div>
+            <div class="happen-agents" id="happen-agents"></div>
+          </div>
+
+          <div class="happen-section">
+            <div class="happen-h">in-flight dispatches</div>
+            <div class="happen-dispatches" id="happen-dispatches">
+              <div class="happen-empty">no in-flight dispatches</div>
+            </div>
+          </div>
+
+          <div class="happen-section happen-feed-section">
+            <div class="happen-h">
+              <span>last events</span>
+              <select id="happen-feed-kind" class="dash-select dash-select-sm" aria-label="event kind filter">
+                <option value="all">all kinds</option>
+                <option value="task">task.*</option>
+                <option value="tool">tool.*</option>
+                <option value="memory">memory.*</option>
+                <option value="approval">approval.*</option>
+                <option value="handoff">handoff.*</option>
+              </select>
+            </div>
+            <div class="happen-feed" id="happen-feed"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-panel grown-panel" aria-label="what's grown">
+        <div class="dash-panel-head">
+          <h2>
+            <span class="glyph">◆</span>
+            <span class="title">what's grown</span>
+          </h2>
+        </div>
+        <div class="dash-panel-body">
+          <div class="grown-stats" id="grown-stats">
+            <div class="grown-stat">
+              <span class="k">records today</span>
+              <span class="v" id="grown-records-today">—</span>
+            </div>
+            <div class="grown-stat">
+              <span class="k">records week</span>
+              <span class="v" id="grown-records-week">—</span>
+            </div>
+            <div class="grown-stat">
+              <span class="k">chat queries</span>
+              <span class="v" id="grown-chat-queries">—</span>
+            </div>
+            <div class="grown-stat">
+              <span class="k">profile Qs open</span>
+              <span class="v" id="grown-profile-q">—</span>
+              <a class="grown-stat-link" id="grown-profile-link" href="/static/profile.html" hidden>answer ↗</a>
+            </div>
+          </div>
+
+          <div class="grown-section">
+            <div class="grown-h">top tags today</div>
+            <div class="grown-tags" id="grown-tags">
+              <div class="grown-empty">—</div>
+            </div>
+          </div>
+
+          <div class="grown-section">
+            <div class="grown-h">profile dimensions</div>
+            <div class="grown-dims" id="grown-dims">
+              <div class="grown-empty">—</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chains as third column in the row. -->
+      <section class="dash-panel chains-panel" id="chains-panel" aria-label="handoff chains">
+        <div class="dash-panel-head">
+          <h2>
+            <span class="glyph">↔</span>
+            <span class="title">handoff chains</span>
+            <span class="count" id="chains-count">0</span>
+          </h2>
+          <div class="chains-controls">
+            <div class="chains-chips" role="tablist" aria-label="min hops">
+              <button type="button" class="chain-chip" data-min-hops="1">all</button>
+              <button type="button" class="chain-chip" data-min-hops="2">≥2</button>
+              <button type="button" class="chain-chip" data-min-hops="3">≥3</button>
+            </div>
+            <select id="chains-window" class="dash-select dash-select-sm" aria-label="time window">
+              <option value="1h">1h</option>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+              <option value="all">all</option>
+            </select>
+          </div>
+        </div>
+        <div class="dash-panel-body">
+          <div class="chains-list" id="chains-list"></div>
+          <div class="chains-empty" id="chains-empty">
+            <span class="dot mono">●</span>
+            <span class="txt mono">no multi-hop chains yet — agents form chains when they pass <code>parent_task_id</code> to <code>dispatch_task</code></span>
+          </div>
+        </div>
+      </section>
+    </section>
+
+  </main>
+
+  <!-- Swimlane drawer (hidden until a chain is opened) -->
+  <aside class="chain-drawer" id="chain-drawer" aria-hidden="true">
+    <div class="chain-drawer-handle">
+      <span class="cdh-grip mono">⋯</span>
+      <button type="button" class="chain-drawer-close" id="chain-drawer-close" aria-label="close swimlane">×</button>
+    </div>
+    <div class="chain-drawer-body" id="chain-drawer-body"></div>
+  </aside>
+
+  <aside class="trace-panel" id="trace-panel">
+    <button class="close" id="trace-close" aria-label="close trace">×</button>
+    <h2>Task trace</h2>
+    <div class="task-id" id="trace-task-id"></div>
+    <div id="trace-events"></div>
+  </aside>
+
+  <script src="/static/memchat.js"></script>
+  <script src="/static/chains.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

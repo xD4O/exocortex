@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exocortex — agents</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="brand"><span class="glyph">[*]</span>Exocortex</div>
+      <nav>
+        <a href="/">dashboard</a>
+        <a href="/memory">constellation</a>
+        <a href="/tasks">tasks</a>
+        <a href="/static/agents.html" class="active">agents</a>
+        <a href="/chat">chat</a>
+        <a href="/static/conversations.html">conversations</a>
+        <a href="/static/profile.html">profile</a>
+        <a href="/static/debug.html">debug</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="status-strip">
+        <span class="kpi"><span class="num" id="kpi-agents">-</span>agents</span>
+        <span class="kpi"><span class="num" id="kpi-events">-</span>events</span>
+      </div>
+      <button type="button" class="mem-toggle off" id="mem-toggle" aria-label="memory chat toggle" title="Toggle memory chat">
+        <span class="label">memory&nbsp;chat</span>
+        <span class="switch">
+          <span class="on">ON</span>
+          <span class="off">OFF</span>
+        </span>
+      </button>
+    </div>
+  </header>
+
+  <main class="agents-layout">
+    <aside class="agents-sidebar" id="agents-sidebar" aria-label="agents list"></aside>
+
+    <section class="agents-main" id="agents-main">
+      <div class="ag-bar" id="ag-bar">
+        <span class="agent-id" id="ag-current">select an agent</span>
+        <div class="chips" id="ag-chips" role="tablist">
+          <button type="button" class="chip active" data-kind="all">all</button>
+          <button type="button" class="chip" data-kind="memory">memory</button>
+          <button type="button" class="chip" data-kind="tools">tools</button>
+          <button type="button" class="chip" data-kind="dispatch">dispatch</button>
+          <button type="button" class="chip" data-kind="chat">chat</button>
+        </div>
+        <div class="date-range">
+          <span>range:</span>
+          <select id="ag-range">
+            <option value="3600000">1h</option>
+            <option value="86400000" selected>24h</option>
+            <option value="604800000">7d</option>
+            <option value="0">all</option>
+          </select>
+        </div>
+      </div>
+      <div class="agents-timeline" id="agents-timeline">
+        <div class="ag-empty">select an agent on the left to see its history</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/memchat.js"></script>
+  <script src="/static/agents.js"></script>
+</body>
+</html>

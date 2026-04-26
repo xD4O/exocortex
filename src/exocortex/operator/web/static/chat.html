@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exocortex — chat</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="brand"><span class="glyph">[*]</span>Exocortex</div>
+      <nav>
+        <a href="/">dashboard</a>
+        <a href="/memory">constellation</a>
+        <a href="/tasks">tasks</a>
+        <a href="/static/agents.html">agents</a>
+        <a href="/chat" class="active">chat</a>
+        <a href="/static/conversations.html">conversations</a>
+        <a href="/static/profile.html">profile</a>
+        <a href="/static/debug.html">debug</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="status-strip">
+        <span class="kpi"><span class="num" id="kpi-turns">0</span>turns</span>
+      </div>
+      <button type="button" class="mem-toggle off" id="mem-toggle" aria-label="memory chat toggle" title="Toggle memory chat">
+        <span class="label">memory&nbsp;chat</span>
+        <span class="switch">
+          <span class="on">ON</span>
+          <span class="off">OFF</span>
+        </span>
+      </button>
+    </div>
+  </header>
+
+  <main class="chat-layout">
+    <section class="chat-zone" aria-label="memory chat">
+      <div class="chat-zone-head">
+        <span class="title">memory chat</span>
+        <span class="right">
+          <span class="indicator" id="chat-indicator">●&nbsp;ready</span>
+          <button type="button" class="clear-btn" id="chat-clear" title="clear conversation">clear</button>
+        </span>
+      </div>
+
+      <div class="chat-history-wrap">
+        <div class="chat-history" id="chat-history" aria-live="polite"></div>
+        <div class="chat-empty" id="chat-empty">
+<pre>ASK THE EXOCORTEX
+─────────────────
+Try:
+  "what did we decide about auth?"
+  "what's still unfinished?"
+  "where did the dispatch debugging end up?"</pre>
+        </div>
+        <button type="button" class="scroll-pill" id="scroll-pill" hidden>↓ <span id="scroll-pill-n">0</span> new</button>
+      </div>
+
+      <div class="chat-composer">
+        <div class="composer-warning" id="composer-warning" hidden></div>
+
+        <div class="scope-selector" id="scope-selector">
+          <span class="label">scope:</span>
+          <select id="scope-select" aria-label="scope">
+            <option value="all">all</option>
+            <option value="global">global</option>
+            <option value="project">project</option>
+            <option value="session">session</option>
+            <option value="task">task</option>
+          </select>
+          <input type="text" id="scope-id-input" class="scope-id" placeholder="scope_id" style="display:none;" autocomplete="off" />
+          <span class="hint" id="scope-hint">filters chat retrieval</span>
+        </div>
+
+        <form id="chat-form" autocomplete="off">
+          <textarea
+            id="chat-input"
+            placeholder="Ask the exocortex…"
+            rows="1"
+            spellcheck="false"
+            autocomplete="off"></textarea>
+          <div class="composer-row">
+            <span class="thinking" id="chat-thinking" hidden>thinking<span class="dots">…</span></span>
+            <span class="hint mono">Cmd+⏎ to send · Esc to clear</span>
+            <button type="submit" class="send" id="chat-send">Send</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <aside class="tasks-sidebar" id="tasks-sidebar" aria-label="tasks">
+      <div class="ts-head">
+        <span>Tasks <span class="count" id="ts-count">0</span></span>
+        <button type="button" class="ts-collapse" id="ts-collapse" title="collapse" aria-label="collapse tasks sidebar">›</button>
+      </div>
+      <div class="ts-tabs" role="tablist">
+        <button type="button" data-tab="open" class="active" role="tab">Open</button>
+        <button type="button" data-tab="completed" role="tab">Completed</button>
+        <button type="button" data-tab="all" role="tab">All</button>
+      </div>
+      <div class="ts-list" id="ts-list"></div>
+      <div class="ts-collapse-stub" id="ts-collapse-stub" title="expand tasks sidebar">tasks</div>
+    </aside>
+
+    <section class="activity-strip" id="activity-strip" aria-label="recent activity"></section>
+  </main>
+
+  <script src="/static/memchat.js"></script>
+  <script src="/static/memory_extras.js"></script>
+  <script src="/static/chat.js"></script>
+</body>
+</html>

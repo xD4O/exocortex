@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exocortex — debug</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="brand"><span class="glyph">[*]</span>Exocortex</div>
+      <nav>
+        <a href="/">dashboard</a>
+        <a href="/memory">constellation</a>
+        <a href="/tasks">tasks</a>
+        <a href="/agents">agents</a>
+        <a href="/chat">chat</a>
+        <a href="/conversations">conversations</a>
+        <a href="/profile">profile</a>
+        <a href="/debug" class="active">debug</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="status-strip">
+        <span class="kpi"><span class="num" id="kpi-failures">0</span>failures</span>
+        <span class="kpi sev-high"><span class="num" id="kpi-high">0</span>high</span>
+        <span class="kpi sev-medium"><span class="num" id="kpi-medium">0</span>medium</span>
+        <span class="kpi sev-low"><span class="num" id="kpi-low">0</span>low</span>
+      </div>
+      <button type="button" class="mem-toggle off" id="mem-toggle" aria-label="memory chat toggle" title="Toggle memory chat">
+        <span class="label">memory&nbsp;chat</span>
+        <span class="switch">
+          <span class="on">ON</span>
+          <span class="off">OFF</span>
+        </span>
+      </button>
+    </div>
+  </header>
+
+  <main class="dbg2-layout" id="dbg2-layout">
+    <!-- LEFT: failure-kind sidebar -->
+    <aside class="dbg2-sidebar" aria-label="failure kinds">
+      <div class="dbg2-side-head">failure kind</div>
+      <div class="dbg2-kind-list" id="dbg-kind-list">
+        <div class="dbg2-empty">loading…</div>
+      </div>
+    </aside>
+
+    <!-- CENTER: filter bar + list of failure rows -->
+    <section class="dbg2-main" id="debug-main">
+      <div class="dbg2-bar">
+        <div class="dbg2-bar-row">
+          <span class="dbg2-bar-label">range</span>
+          <div class="dbg2-chips" id="dbg-range-chips" role="tablist">
+            <button type="button" class="dbg2-chip" data-range="3600000">1h</button>
+            <button type="button" class="dbg2-chip" data-range="86400000">24h</button>
+            <button type="button" class="dbg2-chip" data-range="604800000">7d</button>
+            <button type="button" class="dbg2-chip active" data-range="0">all</button>
+          </div>
+        </div>
+        <div class="dbg2-bar-row">
+          <span class="dbg2-bar-label">agent</span>
+          <div class="dbg2-chips" id="dbg-agent-chips" role="tablist">
+            <button type="button" class="dbg2-chip active" data-agent="all">all</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dbg2-list" id="dbg-list">
+        <div class="dbg2-empty">loading…</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- RIGHT: detail panel — slides in from the right when a row is
+       clicked. Pattern matches the established trace-panel + chain-drawer
+       conventions in this codebase. -->
+  <aside class="dbg2-panel" id="dbg-panel" aria-hidden="true">
+    <div class="dbg2-panel-head">
+      <div class="dbg2-panel-title" id="dbg-panel-title">failure detail</div>
+      <button type="button" class="dbg2-panel-close" id="dbg-panel-close" aria-label="close">×</button>
+    </div>
+    <div class="dbg2-panel-body" id="dbg-panel-body">
+      <div class="dbg2-empty">click a failure on the left to see details</div>
+    </div>
+  </aside>
+
+  <script src="/static/memchat.js"></script>
+  <script src="/static/debug.js"></script>
+</body>
+</html>
