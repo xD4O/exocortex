@@ -101,6 +101,29 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
   `MEMORY_READ` event (op + query + result count), so "what did the agent consult
   before it decided X" is answerable from the trace, not just what it wrote.
 
+### Web UI (Phase 3 — first pass)
+
+- **D2 — keyboard accessibility.** There was no `:focus-visible` rule anywhere
+  and 13 `outline:0/none` sites, so keyboard users had no visible focus. Added a
+  global focus ring (keyboard-only, mouse users unaffected) and extended
+  `prefers-reduced-motion` to cover all CSS animation/transition rather than just
+  four tasks-page effects.
+- **D1 — shared front-end core.** New `static/common.js` (`window.Exo`) is the
+  single source for the agent palette, relative-time formatting, `escapeHtml`,
+  `el()`, a non-throwing `fetchJSON`, and a `connectWs` with exponential-backoff
+  reconnect + an `onOpen` reconcile hook. Included on all pages. Fixed the
+  concrete drift bug it exists to prevent: the unknown-agent color was `#8b9bab`
+  on the tasks/profile pages but `#8b949e` everywhere else, so the same agent
+  rendered a different grey per page — now one canonical value.
+- **C7 — chain/feed data fix.** The dashboard live-feed summary for
+  `approval.requested` read `p.tool`/`p.risk_tier`, which that event never
+  carries, so it always rendered `? (?)`; it now shows the approval reason.
+
+> The remaining UI items (migrating the duplicated per-page helpers to `Exo.*`,
+> diff-rendering the profile/agents views so a 30s poll can't wipe a half-typed
+> answer, the constellation trust/perf fixes, and a debug WebSocket) are tracked
+> for a pass that can be verified live in a browser.
+
 ### Docs
 
 - `docs/IMPROVEMENT-PLAN.md` + `docs/improvement-plan.html` — the four-track

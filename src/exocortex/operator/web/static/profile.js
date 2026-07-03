@@ -94,7 +94,8 @@
     openclaw: "#bb6bd9",
     operator: "#e6edf3",
   };
-  const FALLBACK_AGENT_COLOR = "#8b9bab";
+  // Canonical unknown-agent color (was #8b9bab, inconsistent with other pages). D1.
+  const FALLBACK_AGENT_COLOR = (window.Exo && Exo.FALLBACK_AGENT_COLOR) || "#8b949e";
 
   // ---------------------------------------------------------------------
   // State

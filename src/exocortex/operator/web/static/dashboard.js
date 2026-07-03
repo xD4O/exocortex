@@ -715,7 +715,9 @@
       case "memory.written": return `${p.scope || "?"} ${p.type || ""} (${p.source || ""})`;
       case "handoff.initiated": return `→ ${p.to_agent || "?"}`;
       case "handoff.accepted": return `from ${p.from_agent || "?"}`;
-      case "approval.requested": return `${p.tool || "?"} (${p.risk_tier || "?"})`;
+      // approval.requested payload carries reason/plan_b, not tool/risk_tier —
+      // the old fields always rendered "? (?)". C7.
+      case "approval.requested": return p.reason ? `needs approval: ${truncate(p.reason, 60)}` : "needs approval";
       case "approval.resolved": return `${p.resolution || "?"}`;
       default: {
         if (typeof p === "object") {
