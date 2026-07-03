@@ -199,6 +199,12 @@ class Bridge(ABC):
                 task_id=self._task.id,
                 session_id=self._session.id,
                 agent_id=self.agent_id,
+                actor=self.agent_id,  # C1: this bridge is the real actor
+                reason=(
+                    f"{self.agent_id} → {self._handoff_target}"
+                    if self._handoff_target
+                    else f"{self.agent_id} finished"
+                ),
                 payload={
                     "handoff_id": str(handoff.id),
                     "to_agent": self._handoff_target or "",

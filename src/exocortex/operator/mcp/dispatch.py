@@ -447,11 +447,25 @@ class DispatchService:
         # operator-initiated, so we record "operator" rather than leaving the
         # hop anonymous (B5).
         if self._audit is not None:
+            evt_parent_uuid: UUID | None = None
+            if parent_task_id:
+                try:
+                    evt_parent_uuid = UUID(parent_task_id)
+                except (ValueError, TypeError):
+                    evt_parent_uuid = None
             await self._audit.record(
                 Event(
                     kind=EventKind.HANDOFF_INITIATED,
                     agent_id="exocortex",
+                    # C1: the platform emits this event, but the receiving
+                    # agent is the real actor — surface it as a typed field.
+                    actor=current.agent_id,
                     task_id=task.id,
+                    parent_task_id=evt_parent_uuid,
+                    reason=(
+                        f"{resolved_from or 'operator'} → {current.agent_id}"
+                        + (" (fallback)" if fallback_used else "")
+                    ),
                     payload={
                         "from_agent": resolved_from or "operator",
                         "to_agent": current.agent_id,

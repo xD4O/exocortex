@@ -575,10 +575,15 @@ async def test_b5_handoff_records_resolved_agent_and_operator(tmp_path: Path) ->
         if e.kind.value == "handoff.initiated" and "child_task_id" in e.payload
     ]
     assert dispatch_handoffs, "no dispatch-level HANDOFF_INITIATED event recorded"
-    payload = dispatch_handoffs[0].payload
+    ev = dispatch_handoffs[0]
+    payload = ev.payload
     assert payload["to_agent"] == "codex"
     assert payload["to_agent"] != "auto"
     assert payload["from_agent"] == "operator"
+    # C1: the real actor is a typed field, not buried under agent_id="exocortex".
+    assert ev.agent_id == "exocortex"
+    assert ev.actor == "codex"
+    assert ev.reason and "operator → codex" in ev.reason
 
 
 @pytest.mark.asyncio

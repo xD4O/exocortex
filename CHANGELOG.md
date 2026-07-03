@@ -78,6 +78,29 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
   `CapabilityRouter.route` can match by capability instead of always taking the
   first registered agent.
 
+### Observability (Phase 2)
+
+- **C2 — incremental audit-log reads.** `read_all` re-read and re-validated the
+  entire JSONL on every call, and 17+ endpoints call it (the dashboard polls
+  several on timers) — O(events) work many times a minute. `AuditLog` now caches
+  parsed events and tails only the bytes appended since the last read, with
+  truncation/rotation reset, partial-line safety, and correctness under multiple
+  writers (writes still reconcile from the file by byte offset).
+- **C1 — typed chain-of-custody fields on `Event`.** `actor` (the real agent, vs
+  `agent_id` which is often the platform emitter `"exocortex"`), `parent_task_id`,
+  `caused_by_event_id`, and a human `reason` are now typed top-level fields
+  instead of being buried in the untyped payload. Populated on dispatch + bridge
+  handoff events. Additive — `schema_version` stays 1.
+- **C5 — one shared human-sentence renderer.** `observability/humanize.py` turns
+  an event into a legible line; the CLI (`precog trace`/`tail`) now uses it with a
+  full date (a trace spanning midnight was unreadable) and the true actor,
+  instead of dumping raw `k=v`. The web timeline uses it as a fallback so kinds
+  that used to render blank (sessions, profile, conversations, approvals) now
+  read cleanly.
+- **C4 — reads are audited.** `memory_search` / `memory_list` emit a
+  `MEMORY_READ` event (op + query + result count), so "what did the agent consult
+  before it decided X" is answerable from the trace, not just what it wrote.
+
 ### Docs
 
 - `docs/IMPROVEMENT-PLAN.md` + `docs/improvement-plan.html` — the four-track

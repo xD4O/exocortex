@@ -465,6 +465,20 @@ class MemoryHandlers:
             limit=limit,
             alpha=alpha,
         )
+        # C4: audit what an agent consulted, so "why did it decide that" is
+        # answerable from the trace — not just what it wrote.
+        await self.audit.record(
+            Event(
+                kind=EventKind.MEMORY_READ,
+                payload={
+                    "op": "search",
+                    "query": query,
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "result_count": len(hits),
+                },
+            )
+        )
         return {
             "query": query,
             "count": len(hits),
@@ -480,6 +494,17 @@ class MemoryHandlers:
         records = await self.store.list_by_scope(MemoryScope(scope), scope_id)
         if limit and len(records) > limit:
             records = records[-limit:]
+        await self.audit.record(
+            Event(
+                kind=EventKind.MEMORY_READ,
+                payload={
+                    "op": "list",
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "result_count": len(records),
+                },
+            )
+        )
         return {
             "scope": scope,
             "scope_id": scope_id,

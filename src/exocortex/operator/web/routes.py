@@ -34,6 +34,7 @@ from exocortex.memory.llm import LocalLLMUnavailableError, OllamaChatProvider
 from exocortex.memory.profile import PROFILE_DIMENSIONS, ProfileService
 from exocortex.memory.retrieval import HybridRetrieval
 from exocortex.observability.audit import AuditLog
+from exocortex.observability.humanize import humanize_event
 from exocortex.observability.logging import get_logger
 from exocortex.operator.mcp.dispatch import DispatchService
 from exocortex.operator.web.events import EventBroadcaster
@@ -197,7 +198,9 @@ def _event_preview(event: Event) -> str:
         return str(fn(p))
     if event.kind.value.startswith("dispatch."):
         return f"task={str(p.get('task_id') or '?')[:8]}"
-    return ""
+    # Kinds without a bespoke web formatter (sessions, profile, conversations,
+    # approvals…) fall back to the shared humanizer so they're no longer blank.
+    return humanize_event(event)
 
 
 def _record_to_dict(record: MemoryRecord) -> dict[str, Any]:
