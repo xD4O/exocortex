@@ -55,7 +55,11 @@ from exocortex.memory.session import SessionMemoryStore
 from exocortex.memory.summarizer import TruncatingSummarizer
 from exocortex.observability.audit import AuditLog
 from exocortex.observability.logging import get_logger
-from exocortex.policy.approvals import ApprovalQueue, auto_approve_resolver
+from exocortex.policy.approvals import (
+    ApprovalQueue,
+    auto_approve_resolver,
+    auto_deny_resolver,
+)
 from exocortex.policy.rule_engine import DeclarativeRuleEngine, default_rules
 from exocortex.tools.builtin import register_builtins
 from exocortex.tools.executor import ToolExecutor
@@ -150,7 +154,17 @@ class DispatchService:
         self._audit = audit
         bus = EventBus(policy)
         bus.set_audit_sink(audit.record)
-        approvals = ApprovalQueue(bus, auto_approve_resolver)
+        # A4: whether REQUIRE_APPROVAL tool calls (fs.write / shell.exec) are
+        # auto-approved in autonomous dispatch is now an EXPLICIT, audited
+        # setting rather than a silent hardcoded auto-approve. Both paths emit
+        # APPROVAL_REQUESTED/RESOLVED events, so the operator can see in the
+        # audit log that approval was resolved by policy config, not a human.
+        resolver = (
+            auto_approve_resolver
+            if self._settings.dispatch_auto_approve_tools
+            else auto_deny_resolver
+        )
+        approvals = ApprovalQueue(bus, resolver)
         executor = ToolExecutor(
             registry=registry, policy=policy, bus=bus, approvals=approvals
         )

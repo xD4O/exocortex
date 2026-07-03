@@ -7,6 +7,51 @@ and this project follows semantic versioning at the contract layer (every
 contract carries a `schema_version`; additive-only changes within a major
 version).
 
+## [Unreleased] — v0.2 hardening (Phase 0: safety foundation)
+
+Closes the gap between the platform's advertised safety guarantees and what
+the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
+
+### Security
+
+- **A1 — MCP fs/shell tools are policy-checked and audited.** `fs_read`,
+  `fs_list`, and `shell_exec` on the MCP surface previously bypassed the policy
+  engine, approval queue, and workspace confinement entirely. They now route
+  through `ToolExecutor` via a new `McpToolGate`: every call is confined to a
+  configurable sandbox root (`EXOCORTEX_TOOL_SANDBOX_ROOT`, default CWD),
+  hard-denied for secret-bearing paths (`.ssh`/`.aws`/`.env`/private keys)
+  regardless of the sandbox, and recorded to the audit log
+  (`tool.proposed → tool.policy_checked → tool.executed|rejected`). Restores the
+  load-bearing rule "no tool executes without a PolicyDecision."
+  **Behavior change:** ad-hoc reads outside the sandbox root are now denied;
+  widen with `EXOCORTEX_TOOL_SANDBOX_ROOT`.
+- **A2 — web server local-trust guard.** New `LocalGuardMiddleware` (pure ASGI,
+  so it also covers the WebSocket handshake) rejects cross-origin browser
+  traffic, closing cross-site WebSocket hijack of the audit feed and CSRF on the
+  mutating/agent-dispatch endpoints. Loopback origins and non-browser clients
+  are unaffected. Optional shared token via `EXOCORTEX_WEB_TOKEN`.
+- **A4 — dispatch approval is explicit.** The silent `auto_approve_resolver` that
+  downgraded every `REQUIRE_APPROVAL` to instant approval is now gated on
+  `EXOCORTEX_DISPATCH_AUTO_APPROVE_TOOLS` (default true, but the choice is
+  explicit and both paths emit `APPROVAL_REQUESTED`/`RESOLVED`).
+- **A5 — secret redaction.** `shell_exec` argv is redacted (`-pXXX`,
+  `--token=…`, `--api-key <v>`, `Bearer <t>`) before it is auto-recorded to the
+  shared memory store.
+- **A8 — FTS query hardening.** A malformed FTS5 query (stray quote, bare
+  operator, `col:`) now degrades to a literal-phrase search then to empty
+  results, instead of raising an uncaught `OperationalError` (500 / cheap DoS).
+
+### Docs
+
+- `docs/IMPROVEMENT-PLAN.md` + `docs/improvement-plan.html` — the four-track
+  audit and sequenced roadmap this batch executes against.
+
+### Tests
+
+- +16 tests (FTS hardening, web guard incl. WebSocket rejection + token, MCP
+  tool-gate allow/deny/audit, argv redaction, dispatch approval config). Full
+  suite green (333 passed), ruff + mypy clean.
+
 ## [0.1.0] — 2026-04-26
 
 First public release.

@@ -112,6 +112,9 @@ async def test_auto_capture_tools_record_memory(
     monkeypatch.setenv("EXOCORTEX_DATA_DIR", str(data_dir))
     monkeypatch.setenv("EXOCORTEX_AUDIT_LOG_PATH", str(data_dir / "audit.jsonl"))
     monkeypatch.setenv("EXOCORTEX_MEMORY_DB_PATH", str(data_dir / "memory.db"))
+    # A1: fs/shell tools are now sandbox-confined. Point the sandbox at the
+    # test's working dir (the realistic operator setup: sandbox = project).
+    monkeypatch.setenv("EXOCORTEX_TOOL_SANDBOX_ROOT", str(tmp_path))
 
     target = tmp_path / "hello.txt"
     target.write_text("world", encoding="utf-8")

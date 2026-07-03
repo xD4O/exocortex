@@ -145,14 +145,14 @@ class DurableMemoryStore:
         scope_id: str | None = None,
         limit: int = 50,
     ) -> list[MemoryRecord]:
-        def _sync() -> list[sqlite3.Row]:
+        def _run(match: str) -> list[sqlite3.Row]:
             sql = """
                 SELECT mr.*
                 FROM memory_fts f
                 JOIN memory_records mr ON mr.id = f.id
                 WHERE memory_fts MATCH ?
             """
-            params: list[Any] = [query]
+            params: list[Any] = [match]
             if scope is not None:
                 sql += " AND mr.scope = ?"
                 params.append(scope.value)
@@ -162,6 +162,21 @@ class DurableMemoryStore:
             sql += " ORDER BY bm25(memory_fts) LIMIT ?"
             params.append(limit)
             return list(self._conn.execute(sql, params))
+
+        def _sync() -> list[sqlite3.Row]:
+            # Raw query first (preserves FTS5 operators like OR/NEAR when valid).
+            # A malformed query (stray quote, bare column filter, trailing
+            # operator) raises OperationalError from the FTS5 parser; rather
+            # than surface an unhandled 500 (a cheap DoS), fall back to a
+            # literal phrase search, then to no results.
+            try:
+                return _run(query)
+            except sqlite3.OperationalError:
+                phrase = '"' + query.replace('"', '""') + '"'
+                try:
+                    return _run(phrase)
+                except sqlite3.OperationalError:
+                    return []
 
         async with self._lock:
             rows = await anyio.to_thread.run_sync(_sync)

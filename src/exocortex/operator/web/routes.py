@@ -1,8 +1,11 @@
 """REST + WebSocket routes for the operator web UI.
 
 Everything here reads from the same stores the CLI uses — `AuditLog`,
-`DurableMemoryStore`, `HybridRetrieval`. No new event kinds, no new contracts,
-no mutating endpoints. The UI is a lens, not a second source of truth.
+`DurableMemoryStore`, `HybridRetrieval` — and treats them as the single source
+of truth. Most routes are read-only lenses; a few explicit mutating endpoints
+exist (conversation run/close/delete, settings toggles, profile answer/redact).
+Those, and the event WebSocket, are protected by the same-origin / token guard
+in `security.py` (A2) so a cross-site page cannot drive them.
 """
 
 from __future__ import annotations

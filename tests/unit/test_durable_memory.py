@@ -93,3 +93,26 @@ async def test_scale_100_records(tmp_path: Path) -> None:
         )
         await store.write(r, embedding=embedder.embed(r.content))
     assert await store.count() == 100
+
+
+@pytest.mark.asyncio
+async def test_fts_malformed_query_does_not_crash(tmp_path: Path) -> None:
+    """A1/A8: FTS5 operator syntax in a raw user query must not raise
+    sqlite3.OperationalError (which surfaces as an unhandled 500 / cheap DoS).
+    It should degrade to a literal-phrase search or an empty result."""
+    store = DurableMemoryStore(tmp_path / "mem.db")
+    await store.write(_rec("we chose SQLite over Postgres"))
+
+    for bad in ['"', "NEAR(", "col:", "AND OR", "foo)(bar", "*", '"unterminated']:
+        hits = await store.search_fts(bad)  # must not raise
+        assert isinstance(hits, list)
+
+
+@pytest.mark.asyncio
+async def test_fts_punctuation_query_matches_as_phrase(tmp_path: Path) -> None:
+    """A punctuation-containing query still finds a literal match rather than
+    erroring, thanks to the phrase-quote fallback."""
+    store = DurableMemoryStore(tmp_path / "mem.db")
+    await store.write(_rec("the endpoint is /api/events for the socket"))
+    hits = await store.search_fts("/api/events")
+    assert any("/api/events" in h.content for h in hits)

@@ -33,6 +33,39 @@ class Settings(BaseSettings):
     # User profile memory (USER-scope records about the operator themselves).
     profile_user_id: str = "operator"
 
+    # --- Web server hardening (A2) -------------------------------------
+    # The operator UI trusts a local browser. These close cross-site
+    # request forgery + cross-site WebSocket hijack without breaking
+    # loopback use or non-browser clients (CLI/curl send no Origin).
+    #
+    # Extra browser origins allowed to call the API / open the event
+    # socket, comma-separated (e.g. "http://192.168.1.5:8756"). Loopback
+    # origins (localhost / 127.0.0.1 / ::1, any port) are always allowed.
+    web_allowed_origins: str = ""
+    # When set, every /api/* request and the event WebSocket must present
+    # this token (header `X-Exocortex-Token` or `?token=`). Empty = no
+    # token (pure loopback trust).
+    web_token: str = ""
+
+    # --- Tool sandbox for ad-hoc MCP fs/shell calls (A1) ---------------
+    # fs_read / fs_list / shell_exec from an attached agent are confined
+    # to this root and audited through the policy engine. Defaults to the
+    # process working directory (typically the project the operator
+    # launched the server in). Widen deliberately if agents need more.
+    tool_sandbox_root: Path = Field(default=Path("."))
+    # When true, an out-of-policy fs write / shell exec is auto-denied
+    # rather than auto-approved. Kept false by default so autonomous
+    # dispatch keeps working, but the choice is now explicit + audited
+    # instead of a silent masquerade (A4).
+    dispatch_auto_approve_tools: bool = True
+
+    @property
+    def tool_sandbox_root_resolved(self) -> Path:
+        return self.tool_sandbox_root.expanduser().resolve()
+
+    def web_allowed_origin_set(self) -> set[str]:
+        return {o.strip() for o in self.web_allowed_origins.split(",") if o.strip()}
+
     @property
     def chat_toggle_path(self) -> Path:
         # Persistent on/off marker — flipped via CLI / UI / MCP, read on every
