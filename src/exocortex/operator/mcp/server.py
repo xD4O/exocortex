@@ -215,6 +215,15 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 "from_agent, it's auto-inferred from the parent task."
             )),
         ] = None,
+        required_capabilities: Annotated[
+            list[str] | None,
+            Field(description=(
+                "Capability flags the agent must have (e.g. ['edit_files', "
+                "'run_shell']). Only used when preferred_agent is omitted — the "
+                "router then picks the first registered agent that satisfies "
+                "them instead of just the first available."
+            )),
+        ] = None,
     ) -> dict[str, Any]:
         """Delegate a subtask to another agent synchronously.
 
@@ -232,6 +241,7 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 max_wait_seconds=max_wait_seconds,
                 parent_task_id=parent_task_id,
                 from_agent=from_agent,
+                required_capabilities=required_capabilities,
             )
         except DispatchError as e:
             return {"status": "failed", "error": str(e)}
@@ -265,6 +275,13 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 "handoff. Auto-inferred from parent_task_id if omitted."
             )),
         ] = None,
+        required_capabilities: Annotated[
+            list[str] | None,
+            Field(description=(
+                "Capability flags the agent must have; used only when "
+                "preferred_agent is omitted (capability-based routing)."
+            )),
+        ] = None,
     ) -> dict[str, Any]:
         """Fire-and-forget: start a dispatch, return a task_id IMMEDIATELY
         without waiting for it to finish. Continue your session; poll with
@@ -279,6 +296,7 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 preferred_agent=preferred_agent,
                 parent_task_id=parent_task_id,
                 from_agent=from_agent,
+                required_capabilities=required_capabilities,
             )
             return await dispatcher.get_status(rd.task_id)
         except DispatchError as e:

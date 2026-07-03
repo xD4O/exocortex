@@ -387,34 +387,39 @@ class ConversationService:
         return out
 
 
-def _extract_agent_reply(result: dict[str, Any]) -> str:
-    """Pull the agent's effective "message" out of a dispatch result so
-    the orchestrator can synthesize a conversation turn even when the
-    agent didn't call `conversation_turn` itself. Tries, in order:
+def _extract_agent_reply(result: dict[str, Any], *, dispatched_goal: str = "") -> str:
+    """Pull the agent's effective "message" out of a dispatch result so the
+    orchestrator can synthesize a conversation turn when the agent didn't call
+    `conversation_turn` itself.
 
-    1. The handoff's `goal_restatement` — the agent's framing of what
-       they're doing, often a one-liner that makes a decent message.
-    2. The most recent decision in `decisions_so_far`.
-    3. The most recent memory record the agent wrote (records[0] is
-       newest by `_snapshot()` ordering — actually oldest; pick last).
+    Order matters (B3): prefer the agent's ACTUAL written response over the
+    handoff's `goal_restatement`. In the conversation path `goal_restatement`
+    is the instruction prompt we sent, so returning it would echo our own
+    instructions back into the transcript as if the agent had said them. Tries:
+
+    1. The most recent decision in `decisions_so_far`.
+    2. The most recent ``*_response`` record the agent wrote (else the most
+       recent record of any kind).
+    3. `goal_restatement` — only as a last resort, and never when it just
+       repeats the goal we dispatched (which would be the fabricated echo).
     4. Empty string — caller will skip turn synthesis.
     """
     handoff = result.get("handoff") or {}
     decisions = handoff.get("decisions_so_far") or []
     if decisions:
-        d = decisions[-1]
-        text = (d.get("summary") or "").strip()
+        text = (decisions[-1].get("summary") or "").strip()
+        if text:
+            return text
+    records = result.get("records") or []
+    responses = [r for r in records if str(r.get("type", "")).endswith("_response")]
+    for r in reversed(responses or records):
+        text = (r.get("content") or "").strip()
         if text:
             return text
     goal = (handoff.get("goal_restatement") or "").strip()
-    if goal:
+    dispatched = dispatched_goal.strip()
+    if goal and goal != dispatched and not (dispatched and goal.startswith(dispatched)):
         return goal
-    records = result.get("records") or []
-    if records:
-        last = records[-1]
-        text = (last.get("content") or "").strip()
-        if text:
-            return text
     return ""
 
 
@@ -475,15 +480,28 @@ async def run_rounds(  # noqa: PLR0912, PLR0915 — orchestrator with multi-fall
                 else "(no turns yet — you go first)"
             )
             recipient = others[0] if len(others) == 1 else ", ".join(others)
+            # B4: a turn for an agent with no headless bridge (claude_code)
+            # actually runs on codex/hermes. Attribute the turn to whoever
+            # really produces it — instruct the agent to sign as its effective
+            # identity, and synthesize under that name too, so the transcript
+            # doesn't claim claude_code spoke when codex did.
+            effective = await dispatcher.resolve_effective_agent(speaker) or speaker
+            sign_as = effective if effective != speaker else speaker
+            standin = (
+                f" (You are standing in for {speaker}, who has no headless "
+                f"bridge yet; sign your turn as {sign_as}.)"
+                if effective != speaker
+                else ""
+            )
             goal = (
-                f"You are {speaker}. You're in a multi-agent conversation "
-                f"with {recipient} about: {current['topic']}.\n\n"
+                f"You are {sign_as}. You're in a multi-agent conversation "
+                f"with {recipient} about: {current['topic']}.{standin}\n\n"
                 f"Transcript so far:\n{transcript}\n\n"
                 f"YOUR TASK: produce ONE reply (2-4 sentences). To land "
                 f"it in the transcript you MUST call this MCP tool:\n\n"
                 f"  conversation_turn(\n"
                 f"    conversation_id={conversation_id!r},\n"
-                f"    from_agent={speaker!r},\n"
+                f"    from_agent={sign_as!r},\n"
                 f"    to_agent={recipient!r},\n"
                 f"    content=<your message>,\n"
                 f"  )\n\n"
@@ -496,7 +514,7 @@ async def run_rounds(  # noqa: PLR0912, PLR0915 — orchestrator with multi-fall
                     goal=goal,
                     preferred_agent=speaker,
                     max_wait_seconds=max_wait_seconds,
-                    from_agent=speaker,
+                    from_agent=sign_as,
                 )
             except Exception as e:  # noqa: BLE001
                 skipped.add(speaker)
@@ -524,13 +542,15 @@ async def run_rounds(  # noqa: PLR0912, PLR0915 — orchestrator with multi-fall
             after = await service.get(conversation_id)
             turns_after = len(after["turns"]) if after else turns_before
             if turns_after == turns_before:
-                # Agent didn't call conversation_turn — synthesize.
-                synthesized = _extract_agent_reply(result)
+                # Agent didn't call conversation_turn — synthesize from its
+                # real output (never the echoed instruction prompt, B3), and
+                # attribute it to whoever actually ran (B4).
+                synthesized = _extract_agent_reply(result, dispatched_goal=goal)
                 if synthesized:
                     try:
                         await service.add_turn(
                             conversation_id=conversation_id,
-                            from_agent=speaker,
+                            from_agent=sign_as,
                             to_agent=recipient,
                             content=synthesized,
                         )
@@ -540,6 +560,9 @@ async def run_rounds(  # noqa: PLR0912, PLR0915 — orchestrator with multi-fall
                 else:
                     result["no_reply_landed"] = True
 
+            if effective != speaker:
+                result["intended_agent"] = speaker
+                result["effective_agent"] = effective
             results.append({"speaker": speaker, **result})
             await asyncio.sleep(0.1)
     return results

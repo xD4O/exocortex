@@ -296,6 +296,17 @@ class DispatchService:
             )
         )
 
+    async def resolve_effective_agent(self, preferred: str | None) -> str | None:
+        """The agent that a dispatch to ``preferred`` will actually run on,
+        after the claude_code→codex/hermes fallback. Lets callers (e.g. the
+        conversation orchestrator) attribute work to who really did it (B4)."""
+        await self._ensure_init()
+        assert self._router is not None
+        if preferred in _DISPATCH_UNSUPPORTED_AGENTS:
+            registered = {r.agent_id for r in self._router.registered()}
+            return next((a for a in _FALLBACK_PRIORITY if a in registered), preferred)
+        return preferred
+
     async def start_dispatch(  # noqa: PLR0912, PLR0915 — multi-fallback path
         self,
         *,
@@ -303,6 +314,7 @@ class DispatchService:
         preferred_agent: str | None = None,
         parent_task_id: str | None = None,
         from_agent: str | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> RunningDispatch:
         """Spawn a sub-agent for this goal and return immediately with a
         handle. Use get_status / wait_for / cancel to drive it."""
@@ -390,6 +402,11 @@ class DispatchService:
             )
         if parent_task_id:
             task_inputs["parent_task_id"] = parent_task_id
+        # B6: thread required capabilities so the router can match by
+        # capability instead of falling through to the first registered agent.
+        # Only honored when no explicit preferred_agent is given.
+        if required_capabilities:
+            task_inputs["required_capabilities"] = list(required_capabilities)
         task = await self._task_manager.create(
             goal=goal,
             inputs=task_inputs,
@@ -559,6 +576,7 @@ class DispatchService:
         max_wait_seconds: int = 300,
         parent_task_id: str | None = None,
         from_agent: str | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> dict[str, Any]:
         """Backward-compat synchronous dispatch. Starts a dispatch, waits
         up to max_wait_seconds, then — on timeout — CANCELS the sub-agent
@@ -571,6 +589,7 @@ class DispatchService:
             preferred_agent=preferred_agent,
             parent_task_id=parent_task_id,
             from_agent=from_agent,
+            required_capabilities=required_capabilities,
         )
         snap = await self.wait_for(rd.task_id, wait_seconds=max_wait_seconds)
         if snap["status"] == "running":

@@ -579,3 +579,30 @@ async def test_b5_handoff_records_resolved_agent_and_operator(tmp_path: Path) ->
     assert payload["to_agent"] == "codex"
     assert payload["to_agent"] != "auto"
     assert payload["from_agent"] == "operator"
+
+
+@pytest.mark.asyncio
+async def test_b6_required_capabilities_reach_router(tmp_path: Path) -> None:
+    """B6: required_capabilities is threaded into task.inputs and consumed by
+    the router — an unknown flag fails routing (proving it's wired), a valid
+    one routes to a capable agent."""
+    # Unknown capability flag must fail routing (proves the plumbing reaches
+    # CapabilityRouter.route, which validates flags).
+    svc = _build_fake_stack(
+        tmp_path, codex_script=[WriteMemory(content="x", durable=True), TaskDone()]
+    )
+    with pytest.raises(DispatchError):
+        await svc.start_dispatch(
+            goal="needs a bogus capability",
+            required_capabilities=["not_a_real_flag"],
+        )
+
+    # A valid capability routes to the capable (only) registered agent.
+    svc2 = _build_fake_stack(
+        tmp_path / "b", codex_script=[WriteMemory(content="x", durable=True), TaskDone()]
+    )
+    result = await svc2.dispatch(
+        goal="edit some files", required_capabilities=["edit_files"]
+    )
+    assert result["status"] == "completed"
+    assert result["dispatched_to"] == "codex"

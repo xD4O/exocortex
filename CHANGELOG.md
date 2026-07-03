@@ -63,6 +63,20 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
   unspecified caller to `"operator"` rather than a null `from_agent`.
   `make_test_dispatch_service` now wires the dispatch-level audit sink so this
   path is exercised in tests.
+- **B3 — conversations stop fabricating turns.** When an agent doesn't call
+  `conversation_turn` itself, the orchestrator synthesizes one from the agent's
+  actual response record instead of echoing back `goal_restatement` — which in
+  the conversation path is the instruction prompt we sent. It never uses
+  `goal_restatement` when it just repeats the dispatched goal.
+- **B4 — honest speaker attribution.** A conversation turn for `claude_code`
+  (which has no headless bridge) actually runs on codex/hermes; the turn is now
+  attributed to — and signed by — the agent that really produced it, via a new
+  `DispatchService.resolve_effective_agent`, instead of claiming `claude_code`
+  spoke.
+- **B6 — capability routing is reachable.** `dispatch_task` / `dispatch_async`
+  now accept `required_capabilities`, threaded into `task.inputs` so
+  `CapabilityRouter.route` can match by capability instead of always taking the
+  first registered agent.
 
 ### Docs
 
