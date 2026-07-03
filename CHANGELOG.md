@@ -41,6 +41,29 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
   operator, `col:`) now degrades to a literal-phrase search then to empty
   results, instead of raising an uncaught `OperationalError` (500 / cheap DoS).
 
+### Handoffs (Phase 1)
+
+- **B1 — real bridges can initiate a handoff.** Codex/Hermes previously only
+  ever emitted `WriteMemory` + `TaskDone`, so `to_agent` was always empty and
+  the coordinator chain terminated after hop 0 (true multi-hop handoff was a
+  test-only capability). A new shared `bridge/protocol.py` parses an
+  `@handoff-to: <agent>` (+ optional `@handoff-expected: …`) directive from the
+  agent's final message and emits `RequestHandoff`, so an agent can now pass the
+  baton to the next.
+- **B2 — the handoff bundle actually carries the work.** `build_handoff` now
+  digests the **durable** task-scoped records agents write (it read session
+  memory only, so the digest — and thus `goal_restatement` — came back empty),
+  and populates `workspace_state` from the git worktree (repo SHA, branch,
+  untracked files) instead of hardcoding `None`. Receiving agents get the full
+  bundle — constraints, prior decisions, open questions, expected output — via
+  `compose_agent_prompt`, not just the restated goal.
+- **B5 — no anonymous hops.** The dispatch chain-of-custody event now records
+  the *resolved* agent as `to_agent` (never the placeholder `"auto"`, which
+  broke inheritance for capability-routed children) and attributes an
+  unspecified caller to `"operator"` rather than a null `from_agent`.
+  `make_test_dispatch_service` now wires the dispatch-level audit sink so this
+  path is exercised in tests.
+
 ### Docs
 
 - `docs/IMPROVEMENT-PLAN.md` + `docs/improvement-plan.html` — the four-track

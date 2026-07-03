@@ -411,29 +411,10 @@ class DispatchService:
                 if parent_task:
                     resolved_from = parent_task
 
-        # Audit-log the handoff so chain visualization has explicit linkage
-        # between parent and child tasks. Even when parent_task_id is absent,
-        # the event lets us reconstruct single-hop chains downstream.
-        # `from_agent` + `to_agent` make the chain-of-custody explicit at
-        # every hop — every timeline + the chain swimlane render this as
-        # "from → to".
-        if self._audit is not None:
-            await self._audit.record(
-                Event(
-                    kind=EventKind.HANDOFF_INITIATED,
-                    agent_id="exocortex",
-                    task_id=task.id,
-                    payload={
-                        "from_agent": resolved_from,
-                        "to_agent": preferred_agent or "auto",
-                        "child_task_id": str(task.id),
-                        "parent_task_id": parent_task_id,
-                        "goal_preview": goal[:200],
-                        "fallback_used": fallback_used,
-                    },
-                )
-            )
-
+        # Resolve the routing target BEFORE auditing so the chain-of-custody
+        # event records the agent that actually ran the work — never the
+        # placeholder "auto" (B5), which broke inheritance for capability-routed
+        # children.
         try:
             if preferred_agent:
                 current = self._router.resolve(preferred_agent)
@@ -441,6 +422,29 @@ class DispatchService:
                 current = self._router.route(task)
         except Exception as e:
             raise DispatchError(f"routing failed: {e}") from e
+
+        # Audit-log the handoff so chain visualization has explicit linkage
+        # between parent and child tasks. `from_agent` + `to_agent` make the
+        # chain-of-custody explicit at every hop — every timeline + the chain
+        # swimlane render this as "from → to". An unattributed dispatch is
+        # operator-initiated, so we record "operator" rather than leaving the
+        # hop anonymous (B5).
+        if self._audit is not None:
+            await self._audit.record(
+                Event(
+                    kind=EventKind.HANDOFF_INITIATED,
+                    agent_id="exocortex",
+                    task_id=task.id,
+                    payload={
+                        "from_agent": resolved_from or "operator",
+                        "to_agent": current.agent_id,
+                        "child_task_id": str(task.id),
+                        "parent_task_id": parent_task_id,
+                        "goal_preview": goal[:200],
+                        "fallback_used": fallback_used,
+                    },
+                )
+            )
 
         worktree_mgr = NullWorktreeManager(self._worktree_root)
         worktree = await worktree_mgr.create(task.id)
@@ -645,5 +649,8 @@ def make_test_dispatch_service(
     svc._router = router  # noqa: SLF001
     svc._task_manager = task_manager  # noqa: SLF001
     svc._deps = deps  # noqa: SLF001
+    # Wire the dispatch-level audit sink like production does, so the
+    # chain-of-custody HANDOFF_INITIATED/DISPATCH_* events are exercised.
+    svc._audit = AuditLog(settings.audit_log_path)  # noqa: SLF001
     svc._initialized = True  # noqa: SLF001
     return svc

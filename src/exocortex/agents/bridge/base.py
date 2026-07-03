@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ from exocortex.contracts import (
     SessionStatus,
     Task,
     ToolInvocationCursor,
+    WorkspaceState,
 )
 from exocortex.core.events import EventBus
 from exocortex.core.session_manager import SessionManager
@@ -151,9 +153,22 @@ class Bridge(ABC):
         if self._task is None or self._session is None:
             raise RuntimeError("Bridge.start(...) must be called before build_handoff()")
 
+        # B2: digest BOTH ephemeral session records AND the durable task-scoped
+        # records the agent actually wrote (real bridges write their response
+        # with durable=True). Digesting session memory alone left the digest —
+        # and thus goal_restatement — empty for every real handoff.
         session_records = self._deps.session_memory.list_session(
             str(self._session.id)
         )
+        try:
+            durable_records = await self._deps.durable_memory.list_by_scope(
+                MemoryScope.TASK, str(self._task.id)
+            )
+        except Exception:  # pragma: no cover - durable store best-effort
+            logger.exception("build_handoff.durable_read_failed")
+            durable_records = []
+        digest_records = [*session_records, *durable_records]
+
         sequence_no = (
             self._handoff_in.sequence_no + 1 if self._handoff_in is not None else 0
         )
@@ -167,10 +182,10 @@ class Bridge(ABC):
             from_agent=self.agent_id,
             to_agent=self._handoff_target or "",
             sequence_no=sequence_no,
-            session_records=session_records,
+            session_records=digest_records,
             decisions=list(self._decisions),
             open_questions=list(self._questions),
-            workspace=None,
+            workspace=await self._read_workspace_state(),
             cursor=ToolInvocationCursor(),
             memory_scope_ids=memory_scope_ids,
             expected_output=self._expected_output,
@@ -202,6 +217,42 @@ class Bridge(ABC):
         return handoff
 
     # --- Internal ------------------------------------------------------------
+
+    async def _read_workspace_state(self) -> WorkspaceState | None:
+        """Best-effort snapshot of the git worktree so the next agent inherits
+        the repo ref, branch, and untracked files (B2). Returns None when the
+        workspace isn't a git repo (e.g. a dispatch scratch dir)."""
+        if self._workspace is None:
+            return None
+
+        async def _git(*args: str) -> str | None:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "git", "-C", str(self._workspace), *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except (FileNotFoundError, OSError):
+                return None
+            out, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return None
+            return out.decode("utf-8", errors="replace").strip()
+
+        sha = await _git("rev-parse", "HEAD")
+        if sha is None:
+            return None  # not a git repo
+        branch = await _git("rev-parse", "--abbrev-ref", "HEAD") or ""
+        status = await _git("status", "--porcelain") or ""
+        untracked = [
+            line[3:] for line in status.splitlines() if line.startswith("??")
+        ]
+        return WorkspaceState(
+            repo_ref=sha,
+            branch=branch,
+            worktree_path=str(self._workspace),
+            untracked_manifest=untracked,
+        )
 
     async def _dispatch(
         self, action: AgentAction, task: Task, session: Session
