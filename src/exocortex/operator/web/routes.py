@@ -32,6 +32,7 @@ from exocortex.memory.durable import DurableMemoryStore
 from exocortex.memory.embedding import DeterministicEmbeddingProvider
 from exocortex.memory.llm import LocalLLMUnavailableError, OllamaChatProvider
 from exocortex.memory.profile import PROFILE_DIMENSIONS, ProfileService
+from exocortex.memory.reflect import ReflectionService
 from exocortex.memory.retrieval import HybridRetrieval
 from exocortex.observability.audit import AuditLog
 from exocortex.observability.humanize import humanize_event
@@ -1707,6 +1708,36 @@ def build_router(  # noqa: PLR0915 - single factory, routes are flat by design
             "max_wait_seconds": max_wait_seconds,
             "dispatched": results,
         }
+
+    # --- Reflect (insights) ---------------------------------------------
+
+    @router.get("/api/insights")
+    async def list_insights(include_resolved: bool = False) -> dict[str, Any]:
+        svc = ReflectionService(audit=audit)
+        return {"items": await svc.list_insights(include_resolved=include_resolved)}
+
+    @router.post("/api/insights/{insight_id}/dismiss")
+    async def dismiss_insight(insight_id: str) -> dict[str, Any]:
+        return await ReflectionService(audit=audit).dismiss(insight_id)
+
+    @router.post("/api/insights/{insight_id}/accept")
+    async def accept_insight(insight_id: str) -> dict[str, Any]:
+        try:
+            return await ReflectionService(audit=audit).accept(insight_id, apply=False)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+    @router.post("/api/insights/{insight_id}/act")
+    async def act_insight(insight_id: str) -> dict[str, Any]:
+        try:
+            return await ReflectionService(audit=audit).accept(
+                insight_id,
+                apply=True,
+                store=store,
+                embedder=DeterministicEmbeddingProvider(),
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
 
     # Required by FastAPI type checker — surface Request for future use.
     _ = Request
