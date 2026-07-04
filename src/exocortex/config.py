@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # User profile memory (USER-scope records about the operator themselves).
     profile_user_id: str = "operator"
 
+    # Reflect — reflective thinking-partner. Off by default (opt-in like chat).
+    reflect_enabled: bool = False
+    reflect_window_days: int = 7
+    reflect_agent: str = ""          # preferred agent; "" = capability-routed
+    reflect_max_insights: int = 20
+
     # --- Web server hardening (A2) -------------------------------------
     # The operator UI trusts a local browser. These close cross-site
     # request forgery + cross-site WebSocket hijack without breaking
