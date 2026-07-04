@@ -30,3 +30,23 @@ async def test_window_since_last_reflection_capped(tmp_path: Path) -> None:
     # capped at now-7d even though last reflection was 30d ago
     assert (now() - lo) < timedelta(days=7, hours=1)
     assert (now() - lo) > timedelta(days=6)
+
+
+@pytest.mark.asyncio
+async def test_window_since_last_governs_when_recent(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "a.jsonl")
+    svc = ReflectionService(audit=audit)
+    recent = now() - timedelta(days=2)
+    await audit.record(Event(kind=EventKind.REFLECTION_COMPLETED,
+                             timestamp=recent, payload={"status": "completed"}))
+    lo = await svc.window_from(max_days=7)  # last (2d) is more recent than cap (7d)
+    # since-last governs — NOT the 7d cap
+    assert (now() - lo) < timedelta(days=2, hours=1)
+    assert (now() - lo) > timedelta(days=1)
+
+
+@pytest.mark.asyncio
+async def test_window_override_zero_is_honored(tmp_path: Path) -> None:
+    svc = ReflectionService(audit=AuditLog(tmp_path / "a.jsonl"))
+    lo = await svc.window_from(max_days=7, override_days=0)
+    assert lo is not None and (now() - lo) < timedelta(minutes=1)  # ~now, not 7d ago

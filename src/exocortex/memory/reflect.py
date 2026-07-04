@@ -42,8 +42,8 @@ class ReflectionService:
         current = now()
         if all_history:
             return None
-        cap = current - timedelta(days=override_days if override_days else max_days)
-        if override_days:
+        cap = current - timedelta(days=override_days if override_days is not None else max_days)
+        if override_days is not None:
             return cap
         last = None
         for ev in await self.audit.read_all():
