@@ -118,11 +118,16 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
 - **C7 — chain/feed data fix.** The dashboard live-feed summary for
   `approval.requested` read `p.tool`/`p.risk_tier`, which that event never
   carries, so it always rendered `? (?)`; it now shows the approval reason.
+- **D5 — the `/debug` failure console gets live updates.** It was the one page
+  with no WebSocket (up to 30s stale) despite a "safety net for missed WS
+  events" comment. It now uses the shared `connectWs`: a failure-relevant event
+  refetches (debounced), and every reconnect reconciles events missed while
+  disconnected.
 
 > The remaining UI items (migrating the duplicated per-page helpers to `Exo.*`,
 > diff-rendering the profile/agents views so a 30s poll can't wipe a half-typed
-> answer, the constellation trust/perf fixes, and a debug WebSocket) are tracked
-> for a pass that can be verified live in a browser.
+> answer, and the constellation trust/perf fixes) are tracked for a pass that
+> can be verified live in a browser.
 
 ### Docs
 

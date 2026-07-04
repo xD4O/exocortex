@@ -571,6 +571,27 @@
     // Auto-poll every 30s as a safety net for missed WS events.
     setInterval(fetchFailures, 30_000);
 
+    // Live updates (D5): this page previously had NO WebSocket despite the
+    // comment above — the failure console, where you most want live pushes,
+    // was up to 30s stale. Refetch (debounced) when a failure-relevant event
+    // arrives, and reconcile on every (re)connect so events missed while
+    // disconnected aren't lost.
+    const FAILURE_KINDS = new Set(
+      KIND_DEFS.filter((d) => d.kind !== "*").map((d) => d.kind)
+    );
+    if (window.Exo && Exo.connectWs) {
+      let pending = null;
+      Exo.connectWs("/api/events", {
+        onOpen: fetchFailures,
+        onMessage: (ev) => {
+          if (ev && FAILURE_KINDS.has(ev.kind)) {
+            clearTimeout(pending);
+            pending = setTimeout(fetchFailures, 400);
+          }
+        },
+      });
+    }
+
     // Deep-link: /debug?event=<id> auto-opens that one.
     try {
       const u = new URL(window.location.href);
