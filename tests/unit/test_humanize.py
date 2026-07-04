@@ -41,3 +41,12 @@ def test_unknown_payload_falls_back_to_compact_kv() -> None:
     ev = Event(kind=EventKind.TOOL_PROPOSED, payload={})
     # No reason, empty payload → the kind's own phrasing, never a crash.
     assert humanize_event(ev)
+
+
+def test_reflect_event_sentences() -> None:
+    assert "contradiction" in humanize_event(Event(
+        kind=EventKind.INSIGHT_PROPOSED,
+        payload={"kind": "contradiction", "title": "X conflicts with Y"}))
+    assert "3 insights" in humanize_event(Event(
+        kind=EventKind.REFLECTION_COMPLETED,
+        payload={"status": "completed", "insight_count": 3}))
