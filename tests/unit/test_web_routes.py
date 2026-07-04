@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from exocortex.config import Settings
 from exocortex.contracts import (
@@ -974,3 +975,58 @@ def test_static_css_served(web_env: tuple[Path, Path]) -> None:
         r = client.get("/static/app.css")
         assert r.status_code == 200
         assert "--bg" in r.text
+
+
+# --- A2: local-trust guard (CSRF + cross-site WS hijack) --------------------
+
+def test_guard_allows_no_origin(web_env: tuple[Path, Path]) -> None:
+    """CLI / curl / same-origin loads send no Origin and must pass."""
+    with _client(web_env) as client:
+        assert client.get("/api/status").status_code == 200
+
+
+def test_guard_allows_loopback_origin(web_env: tuple[Path, Path]) -> None:
+    with _client(web_env) as client:
+        r = client.get("/api/status", headers={"Origin": "http://localhost:8756"})
+        assert r.status_code == 200
+        r2 = client.get("/api/status", headers={"Origin": "http://127.0.0.1:9999"})
+        assert r2.status_code == 200
+
+
+def test_guard_rejects_cross_origin(web_env: tuple[Path, Path]) -> None:
+    with _client(web_env) as client:
+        r = client.get("/api/status", headers={"Origin": "http://evil.example.com"})
+        assert r.status_code == 403
+
+
+def test_guard_rejects_cross_origin_websocket(web_env: tuple[Path, Path]) -> None:
+    """A cross-site page must not be able to stream the audit feed."""
+    with (
+        _client(web_env) as client,
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(
+            "/api/events", headers={"Origin": "http://evil.example.com"}
+        ) as ws,
+    ):
+        ws.receive_text()
+
+
+def test_guard_allows_same_origin_websocket(web_env: tuple[Path, Path]) -> None:
+    with (
+        _client(web_env) as client,
+        client.websocket_connect("/api/events") as ws,
+    ):
+        # First frame is the hello handshake; connection stayed open.
+        assert ws.receive_json() is not None
+
+
+def test_guard_token_required_when_configured(
+    web_env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EXOCORTEX_WEB_TOKEN", "s3cret")
+    with _client(web_env) as client:
+        assert client.get("/api/status").status_code == 403
+        ok = client.get("/api/status", headers={"X-Exocortex-Token": "s3cret"})
+        assert ok.status_code == 200
+        viaquery = client.get("/api/status?token=s3cret")
+        assert viaquery.status_code == 200

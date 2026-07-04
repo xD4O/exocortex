@@ -94,7 +94,8 @@
     openclaw: "#bb6bd9",
     operator: "#e6edf3",
   };
-  const FALLBACK_AGENT_COLOR = "#8b9bab";
+  // Canonical unknown-agent color (was #8b9bab, inconsistent with other pages). D1.
+  const FALLBACK_AGENT_COLOR = (window.Exo && Exo.FALLBACK_AGENT_COLOR) || "#8b949e";
 
   // ---------------------------------------------------------------------
   // State
@@ -658,6 +659,23 @@
       ]));
       return;
     }
+
+    // Diff guard (D3): the 30s poll calls this repeatedly. If the set of open
+    // questions hasn't changed and the operator is mid-answer (a textarea has
+    // focus or a draft), skip the destructive innerHTML rebuild — it used to
+    // wipe a half-typed answer every 30 seconds, clobbering the exact slow
+    // interaction this page exists for.
+    const openIds = open.map((q) => (q && q.id) || "").join(",");
+    const active = document.activeElement;
+    const midAnswer =
+      active && active.classList && active.classList.contains("pq-textarea");
+    const hasDraft = Array.from(host.querySelectorAll(".pq-textarea")).some(
+      (t) => t.value && t.value.trim()
+    );
+    if (host.__renderedIds === openIds && (midAnswer || hasDraft)) {
+      return;
+    }
+    host.__renderedIds = openIds;
 
     host.innerHTML = "";
     const expanded = open.slice(0, 3);

@@ -5,6 +5,7 @@ from rich.table import Table
 from rich.text import Text
 
 from exocortex.contracts import Event, EventKind, MemoryRecord
+from exocortex.observability.humanize import humanize_event
 
 _KIND_STYLE: dict[EventKind, str] = {
     EventKind.TASK_CREATED: "bold cyan",
@@ -37,15 +38,16 @@ _CONFIDENCE_GLYPH: dict[str, str] = {
 def render_event_line(ev: Event) -> Text:
     style = _KIND_STYLE.get(ev.kind, "white")
     task_id = str(ev.task_id)[:8] if ev.task_id else "-"
-    agent = ev.agent_id or "-"
+    # Prefer the true actor over the emitter (agent_id may be the platform).
+    agent = ev.actor or ev.agent_id or "-"
     line = Text()
-    line.append(ev.timestamp.strftime("%H:%M:%S.%f")[:-3], style="dim")
+    # Full date + time so a trace spanning midnight stays readable (C5).
+    line.append(ev.timestamp.strftime("%Y-%m-%d %H:%M:%S"), style="dim")
     line.append("  ")
-    line.append(f"{ev.kind:<28}", style=style)
-    line.append(f" task={task_id}  agent={agent:<14}", style="dim")
-    payload_parts = [f"{k}={_short(v)}" for k, v in sorted(ev.payload.items())]
-    if payload_parts:
-        line.append(" ".join(payload_parts), style="white")
+    line.append(f"{ev.kind:<24}", style=style)
+    line.append(f" task={task_id}  {agent:<12} ", style="dim")
+    # One human-readable sentence instead of a raw payload dump.
+    line.append(humanize_event(ev), style="white")
     return line
 
 

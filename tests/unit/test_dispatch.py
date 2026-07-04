@@ -553,3 +553,61 @@ async def test_parallel_dispatch_via_gather(tmp_path: Path) -> None:
     assert results[1]["dispatched_to"] == "codex"
     assert results[0]["status"] == "completed"
     assert results[1]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_b5_handoff_records_resolved_agent_and_operator(tmp_path: Path) -> None:
+    """B5: a capability-routed dispatch with no explicit caller records the
+    real resolved agent as to_agent (not 'auto') and attributes the hop to
+    'operator' (not an anonymous null)."""
+    svc = _build_fake_stack(
+        tmp_path, codex_script=[WriteMemory(content="ok", durable=True), TaskDone()]
+    )
+    await svc.dispatch(goal="do a thing with no preferred agent")
+
+    audit = AuditLog(tmp_path / "data" / "audit.jsonl")
+    events = await audit.read_all()
+    # The dispatch-level chain-of-custody event carries child_task_id; the
+    # bridge's own build_handoff event does not.
+    dispatch_handoffs = [
+        e
+        for e in events
+        if e.kind.value == "handoff.initiated" and "child_task_id" in e.payload
+    ]
+    assert dispatch_handoffs, "no dispatch-level HANDOFF_INITIATED event recorded"
+    ev = dispatch_handoffs[0]
+    payload = ev.payload
+    assert payload["to_agent"] == "codex"
+    assert payload["to_agent"] != "auto"
+    assert payload["from_agent"] == "operator"
+    # C1: the real actor is a typed field, not buried under agent_id="exocortex".
+    assert ev.agent_id == "exocortex"
+    assert ev.actor == "codex"
+    assert ev.reason and "operator → codex" in ev.reason
+
+
+@pytest.mark.asyncio
+async def test_b6_required_capabilities_reach_router(tmp_path: Path) -> None:
+    """B6: required_capabilities is threaded into task.inputs and consumed by
+    the router — an unknown flag fails routing (proving it's wired), a valid
+    one routes to a capable agent."""
+    # Unknown capability flag must fail routing (proves the plumbing reaches
+    # CapabilityRouter.route, which validates flags).
+    svc = _build_fake_stack(
+        tmp_path, codex_script=[WriteMemory(content="x", durable=True), TaskDone()]
+    )
+    with pytest.raises(DispatchError):
+        await svc.start_dispatch(
+            goal="needs a bogus capability",
+            required_capabilities=["not_a_real_flag"],
+        )
+
+    # A valid capability routes to the capable (only) registered agent.
+    svc2 = _build_fake_stack(
+        tmp_path / "b", codex_script=[WriteMemory(content="x", durable=True), TaskDone()]
+    )
+    result = await svc2.dispatch(
+        goal="edit some files", required_capabilities=["edit_files"]
+    )
+    assert result["status"] == "completed"
+    assert result["dispatched_to"] == "codex"

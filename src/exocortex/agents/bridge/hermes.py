@@ -19,12 +19,9 @@ import asyncio
 import re
 from pathlib import Path
 
-from exocortex.agents.bridge.actions import (
-    AgentAction,
-    TaskDone,
-    WriteMemory,
-)
+from exocortex.agents.bridge.actions import AgentAction
 from exocortex.agents.bridge.base import Bridge
+from exocortex.agents.bridge.protocol import build_response_actions, compose_agent_prompt
 from exocortex.contracts import AgentCapability, Handoff, Task
 
 # Hermes --pass-session-id emits something like `session_id: <uuid>` or
@@ -104,9 +101,8 @@ class HermesSubprocessProcess:
     async def start(
         self, task: Task, handoff_in: Handoff | None = None
     ) -> None:
-        query = (
-            handoff_in.goal_restatement if handoff_in is not None else task.goal
-        )
+        # B2: pass the full inbound bundle, not just the restated goal.
+        query = compose_agent_prompt(task, handoff_in)
         resume = None
         # If an incoming handoff carries a prior hermes session id, resume it.
         # We encode it into memory_scope_ids as "hermes_session:<id>".
@@ -145,10 +141,8 @@ class HermesSubprocessProcess:
 
         self._session_id = self._extract_session_id(self._last_stdout)
         response = self._strip_session_marker(self._last_stdout, self._session_id)
-        self._actions = [
-            WriteMemory(content=response, durable=True, type="hermes_response"),
-            TaskDone(success=True),
-        ]
+        # B1: honor an agent-initiated @handoff-to directive in the response.
+        self._actions = build_response_actions(response, response_type="hermes_response")
 
     async def next_action(self) -> AgentAction | None:
         if not self._alive or not self._actions:

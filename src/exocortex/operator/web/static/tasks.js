@@ -32,7 +32,9 @@ const AGENT_COLORS = {
   claude_code: "#7ee787",
   openclaw: "#bb6bd9",
 };
-const FALLBACK_AGENT_COLOR = "#8b9bab";
+// Match the canonical unknown-agent color (was #8b9bab here, #8b949e
+// elsewhere — the same agent rendered a different grey per page). D1.
+const FALLBACK_AGENT_COLOR = (window.Exo && Exo.FALLBACK_AGENT_COLOR) || "#8b949e";
 
 const STATUS_COLOR = {
   proposed:    "#8b9bab",

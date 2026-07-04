@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -34,6 +33,7 @@ from exocortex.memory.retrieval import HybridRetrieval
 from exocortex.observability.audit import AuditLog
 from exocortex.operator.mcp.dispatch import DispatchError, DispatchService
 from exocortex.operator.mcp.handlers import MemoryHandlers
+from exocortex.operator.mcp.toolgate import McpToolGate, redact_argv
 
 Scope = Literal["session", "task", "project", "global"]
 ConfidenceLiteral = Literal["observed", "inferred", "asserted", "external_claim"]
@@ -166,6 +166,8 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
     effective_settings = settings or Settings()
     effective_settings.ensure_dirs()
     dispatcher = DispatchService(settings=effective_settings)
+    # Policy-checked, audited gateway for the ad-hoc fs/shell tools (A1).
+    tool_gate = McpToolGate(settings=effective_settings, audit=handlers.audit)
     mcp = FastMCP(name="exocortex", instructions=INSTRUCTIONS)
 
     @mcp.tool()
@@ -213,6 +215,15 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 "from_agent, it's auto-inferred from the parent task."
             )),
         ] = None,
+        required_capabilities: Annotated[
+            list[str] | None,
+            Field(description=(
+                "Capability flags the agent must have (e.g. ['edit_files', "
+                "'run_shell']). Only used when preferred_agent is omitted — the "
+                "router then picks the first registered agent that satisfies "
+                "them instead of just the first available."
+            )),
+        ] = None,
     ) -> dict[str, Any]:
         """Delegate a subtask to another agent synchronously.
 
@@ -230,6 +241,7 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 max_wait_seconds=max_wait_seconds,
                 parent_task_id=parent_task_id,
                 from_agent=from_agent,
+                required_capabilities=required_capabilities,
             )
         except DispatchError as e:
             return {"status": "failed", "error": str(e)}
@@ -263,6 +275,13 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 "handoff. Auto-inferred from parent_task_id if omitted."
             )),
         ] = None,
+        required_capabilities: Annotated[
+            list[str] | None,
+            Field(description=(
+                "Capability flags the agent must have; used only when "
+                "preferred_agent is omitted (capability-based routing)."
+            )),
+        ] = None,
     ) -> dict[str, Any]:
         """Fire-and-forget: start a dispatch, return a task_id IMMEDIATELY
         without waiting for it to finish. Continue your session; poll with
@@ -277,6 +296,7 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
                 preferred_agent=preferred_agent,
                 parent_task_id=parent_task_id,
                 from_agent=from_agent,
+                required_capabilities=required_capabilities,
             )
             return await dispatcher.get_status(rd.task_id)
         except DispatchError as e:
@@ -844,10 +864,16 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             Field(description="Truncate content at this many chars (for huge files)."),
         ] = 50_000,
     ) -> dict[str, Any]:
-        """Read a text file AND auto-record the read as a memory observation."""
-        p = Path(path)
-        raw = p.read_text(encoding="utf-8", errors="replace")
+        """Read a text file AND auto-record the read as a memory observation.
+
+        Routed through the policy gate: confined to the sandbox root and
+        denied for secret-bearing paths. Every call is audited."""
+        result = await tool_gate.invoke(
+            tool="fs.read", arguments={"path": path}, agent_id=source
+        )
+        raw = result.get("content", "")
         truncated = raw[:max_chars]
+        p = result.get("path", path)
         await _auto_record(
             content=f"fs_read {p} ({len(raw)} chars)",
             source=source,
@@ -855,7 +881,7 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             tags=["fs_read", "auto"],
         )
         return {
-            "path": str(p),
+            "path": p,
             "content": truncated,
             "full_size": len(raw),
             "truncated": len(raw) > max_chars,
@@ -868,16 +894,21 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             str, Field(description="Agent id making the call.")
         ] = "external",
     ) -> dict[str, Any]:
-        """List entries in a directory AND auto-record the listing."""
-        p = Path(path)
-        entries = sorted(e.name for e in p.iterdir())
+        """List entries in a directory AND auto-record the listing.
+
+        Routed through the policy gate (sandbox-confined, audited)."""
+        result = await tool_gate.invoke(
+            tool="fs.list", arguments={"path": path}, agent_id=source
+        )
+        entries = result.get("entries", [])
+        p = result.get("path", path)
         await _auto_record(
             content=f"fs_list {p} ({len(entries)} entries)",
             source=source,
             record_type="observation",
             tags=["fs_list", "auto"],
         )
-        return {"path": str(p), "entries": entries, "count": len(entries)}
+        return {"path": p, "entries": entries, "count": len(entries)}
 
     @mcp.tool()
     async def shell_exec(
@@ -901,37 +932,25 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
         """Run a shell command AND auto-record the invocation + exit code.
 
         Stdout/stderr are returned to the caller. The memory record
-        captures argv + cwd + return code; the full output is NOT
-        persisted (too much noise for a cross-session memory layer).
+        captures a REDACTED argv + cwd + return code (secret-shaped tokens
+        are masked so they never enter shared memory); the full output is
+        NOT persisted (too much noise for a cross-session memory layer).
+
+        Routed through the policy gate: cwd is confined to the sandbox root,
+        commands referencing secret paths are denied, and every call is
+        audited.
         """
         if not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError("argv must be a non-empty list of strings")
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = await tool_gate.invoke(
+            tool="shell.exec",
+            arguments={"argv": argv, "cwd": cwd, "timeout_seconds": timeout_seconds},
+            agent_id=source,
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout_seconds
-            )
-        except TimeoutError:
-            proc.kill()
-            await proc.wait()
-            await _auto_record(
-                content=f"shell_exec TIMEOUT {' '.join(argv)} (cwd={cwd})",
-                source=source,
-                record_type="observation",
-                tags=["shell_exec", "auto", "timeout"],
-            )
-            raise
-
-        rc = proc.returncode
-        summary = f"shell_exec rc={rc} argv={argv} cwd={cwd}"
+        rc = result.get("returncode")
+        safe_argv = redact_argv(argv)
         await _auto_record(
-            content=summary,
+            content=f"shell_exec rc={rc} argv={safe_argv} cwd={cwd}",
             source=source,
             record_type="observation",
             tags=["shell_exec", "auto", f"rc={rc}"],
@@ -940,8 +959,8 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             "argv": argv,
             "cwd": cwd,
             "returncode": rc,
-            "stdout": stdout.decode("utf-8", errors="replace"),
-            "stderr": stderr.decode("utf-8", errors="replace"),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
         }
 
     return mcp

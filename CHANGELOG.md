@@ -7,6 +7,149 @@ and this project follows semantic versioning at the contract layer (every
 contract carries a `schema_version`; additive-only changes within a major
 version).
 
+## [0.2.0] — 2026-07-03
+
+The v0.2 hardening batch. Closes the gap between the platform's advertised
+guarantees and what the code enforced, across four tracks — security, agent
+handoffs, observability, and the web UI. See `docs/IMPROVEMENT-PLAN.md` for the
+full audit and roadmap. (The UI track's browser-verified tail — timeline
+diff-render, constellation perf, drawer focus-traps — is tracked as follow-up.)
+
+### Security
+
+- **A1 — MCP fs/shell tools are policy-checked and audited.** `fs_read`,
+  `fs_list`, and `shell_exec` on the MCP surface previously bypassed the policy
+  engine, approval queue, and workspace confinement entirely. They now route
+  through `ToolExecutor` via a new `McpToolGate`: every call is confined to a
+  configurable sandbox root (`EXOCORTEX_TOOL_SANDBOX_ROOT`, default CWD),
+  hard-denied for secret-bearing paths (`.ssh`/`.aws`/`.env`/private keys)
+  regardless of the sandbox, and recorded to the audit log
+  (`tool.proposed → tool.policy_checked → tool.executed|rejected`). Restores the
+  load-bearing rule "no tool executes without a PolicyDecision."
+  **Behavior change:** ad-hoc reads outside the sandbox root are now denied;
+  widen with `EXOCORTEX_TOOL_SANDBOX_ROOT`.
+- **A2 — web server local-trust guard.** New `LocalGuardMiddleware` (pure ASGI,
+  so it also covers the WebSocket handshake) rejects cross-origin browser
+  traffic, closing cross-site WebSocket hijack of the audit feed and CSRF on the
+  mutating/agent-dispatch endpoints. Loopback origins and non-browser clients
+  are unaffected. Optional shared token via `EXOCORTEX_WEB_TOKEN`.
+- **A4 — dispatch approval is explicit.** The silent `auto_approve_resolver` that
+  downgraded every `REQUIRE_APPROVAL` to instant approval is now gated on
+  `EXOCORTEX_DISPATCH_AUTO_APPROVE_TOOLS` (default true, but the choice is
+  explicit and both paths emit `APPROVAL_REQUESTED`/`RESOLVED`).
+- **A5 — secret redaction.** `shell_exec` argv is redacted (`-pXXX`,
+  `--token=…`, `--api-key <v>`, `Bearer <t>`) before it is auto-recorded to the
+  shared memory store.
+- **A8 — FTS query hardening.** A malformed FTS5 query (stray quote, bare
+  operator, `col:`) now degrades to a literal-phrase search then to empty
+  results, instead of raising an uncaught `OperationalError` (500 / cheap DoS).
+
+### Handoffs (Phase 1)
+
+- **B1 — real bridges can initiate a handoff.** Codex/Hermes previously only
+  ever emitted `WriteMemory` + `TaskDone`, so `to_agent` was always empty and
+  the coordinator chain terminated after hop 0 (true multi-hop handoff was a
+  test-only capability). A new shared `bridge/protocol.py` parses an
+  `@handoff-to: <agent>` (+ optional `@handoff-expected: …`) directive from the
+  agent's final message and emits `RequestHandoff`, so an agent can now pass the
+  baton to the next.
+- **B2 — the handoff bundle actually carries the work.** `build_handoff` now
+  digests the **durable** task-scoped records agents write (it read session
+  memory only, so the digest — and thus `goal_restatement` — came back empty),
+  and populates `workspace_state` from the git worktree (repo SHA, branch,
+  untracked files) instead of hardcoding `None`. Receiving agents get the full
+  bundle — constraints, prior decisions, open questions, expected output — via
+  `compose_agent_prompt`, not just the restated goal.
+- **B5 — no anonymous hops.** The dispatch chain-of-custody event now records
+  the *resolved* agent as `to_agent` (never the placeholder `"auto"`, which
+  broke inheritance for capability-routed children) and attributes an
+  unspecified caller to `"operator"` rather than a null `from_agent`.
+  `make_test_dispatch_service` now wires the dispatch-level audit sink so this
+  path is exercised in tests.
+- **B3 — conversations stop fabricating turns.** When an agent doesn't call
+  `conversation_turn` itself, the orchestrator synthesizes one from the agent's
+  actual response record instead of echoing back `goal_restatement` — which in
+  the conversation path is the instruction prompt we sent. It never uses
+  `goal_restatement` when it just repeats the dispatched goal.
+- **B4 — honest speaker attribution.** A conversation turn for `claude_code`
+  (which has no headless bridge) actually runs on codex/hermes; the turn is now
+  attributed to — and signed by — the agent that really produced it, via a new
+  `DispatchService.resolve_effective_agent`, instead of claiming `claude_code`
+  spoke.
+- **B6 — capability routing is reachable.** `dispatch_task` / `dispatch_async`
+  now accept `required_capabilities`, threaded into `task.inputs` so
+  `CapabilityRouter.route` can match by capability instead of always taking the
+  first registered agent.
+
+### Observability (Phase 2)
+
+- **C2 — incremental audit-log reads.** `read_all` re-read and re-validated the
+  entire JSONL on every call, and 17+ endpoints call it (the dashboard polls
+  several on timers) — O(events) work many times a minute. `AuditLog` now caches
+  parsed events and tails only the bytes appended since the last read, with
+  truncation/rotation reset, partial-line safety, and correctness under multiple
+  writers (writes still reconcile from the file by byte offset).
+- **C1 — typed chain-of-custody fields on `Event`.** `actor` (the real agent, vs
+  `agent_id` which is often the platform emitter `"exocortex"`), `parent_task_id`,
+  `caused_by_event_id`, and a human `reason` are now typed top-level fields
+  instead of being buried in the untyped payload. Populated on dispatch + bridge
+  handoff events. Additive — `schema_version` stays 1.
+- **C5 — one shared human-sentence renderer.** `observability/humanize.py` turns
+  an event into a legible line; the CLI (`precog trace`/`tail`) now uses it with a
+  full date (a trace spanning midnight was unreadable) and the true actor,
+  instead of dumping raw `k=v`. The web timeline uses it as a fallback so kinds
+  that used to render blank (sessions, profile, conversations, approvals) now
+  read cleanly.
+- **C4 — reads are audited.** `memory_search` / `memory_list` emit a
+  `MEMORY_READ` event (op + query + result count), so "what did the agent consult
+  before it decided X" is answerable from the trace, not just what it wrote.
+
+### Web UI (Phase 3 — first pass)
+
+- **D2 — keyboard accessibility.** There was no `:focus-visible` rule anywhere
+  and 13 `outline:0/none` sites, so keyboard users had no visible focus. Added a
+  global focus ring (keyboard-only, mouse users unaffected) and extended
+  `prefers-reduced-motion` to cover all CSS animation/transition rather than just
+  four tasks-page effects.
+- **D1 — shared front-end core.** New `static/common.js` (`window.Exo`) is the
+  single source for the agent palette, relative-time formatting, `escapeHtml`,
+  `el()`, a non-throwing `fetchJSON`, and a `connectWs` with exponential-backoff
+  reconnect + an `onOpen` reconcile hook. Included on all pages. Fixed the
+  concrete drift bug it exists to prevent: the unknown-agent color was `#8b9bab`
+  on the tasks/profile pages but `#8b949e` everywhere else, so the same agent
+  rendered a different grey per page — now one canonical value.
+- **C7 — chain/feed data fix.** The dashboard live-feed summary for
+  `approval.requested` read `p.tool`/`p.risk_tier`, which that event never
+  carries, so it always rendered `? (?)`; it now shows the approval reason.
+- **D5 — the `/debug` failure console gets live updates.** It was the one page
+  with no WebSocket (up to 30s stale) despite a "safety net for missed WS
+  events" comment. It now uses the shared `connectWs`: a failure-relevant event
+  refetches (debounced), and every reconnect reconciles events missed while
+  disconnected.
+- **D4 (trust) — the memory constellation stops overstating itself.** The legend
+  claimed `edges = semantic ≥ 0.78`, but edges fall back to layout-proximity
+  when embeddings aren't present — relabeled to the honest `edges = similarity`.
+  The hard 30-day age cap that permanently hid older records from this *durable*
+  store is gone: the age control now defaults to "all" with an explicit
+  unbounded position. Guarded the crash path where a missing `points` field
+  threw during layout.
+
+> The remaining UI items (migrating the duplicated per-page helpers to `Exo.*`,
+> diff-rendering the profile/agents views so a 30s poll can't wipe a half-typed
+> answer, and the constellation's render-on-demand performance work) are tracked
+> for a pass that can be verified live in a browser.
+
+### Docs
+
+- `docs/IMPROVEMENT-PLAN.md` + `docs/improvement-plan.html` — the four-track
+  audit and sequenced roadmap this batch executes against.
+
+### Tests
+
+- +16 tests (FTS hardening, web guard incl. WebSocket rejection + token, MCP
+  tool-gate allow/deny/audit, argv redaction, dispatch approval config). Full
+  suite green (333 passed), ruff + mypy clean.
+
 ## [0.1.0] — 2026-04-26
 
 First public release.
@@ -116,4 +259,5 @@ First public release.
 - Real-binary integration tests are opt-in (`EXOCORTEX_RUN_HERMES=1`,
   `EXOCORTEX_RUN_CODEX=1`).
 
+[0.2.0]: https://github.com/xD4O/exocortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/xD4O/exocortex/releases/tag/v0.1.0

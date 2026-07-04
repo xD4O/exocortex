@@ -55,7 +55,11 @@ from exocortex.memory.session import SessionMemoryStore
 from exocortex.memory.summarizer import TruncatingSummarizer
 from exocortex.observability.audit import AuditLog
 from exocortex.observability.logging import get_logger
-from exocortex.policy.approvals import ApprovalQueue, auto_approve_resolver
+from exocortex.policy.approvals import (
+    ApprovalQueue,
+    auto_approve_resolver,
+    auto_deny_resolver,
+)
 from exocortex.policy.rule_engine import DeclarativeRuleEngine, default_rules
 from exocortex.tools.builtin import register_builtins
 from exocortex.tools.executor import ToolExecutor
@@ -150,7 +154,17 @@ class DispatchService:
         self._audit = audit
         bus = EventBus(policy)
         bus.set_audit_sink(audit.record)
-        approvals = ApprovalQueue(bus, auto_approve_resolver)
+        # A4: whether REQUIRE_APPROVAL tool calls (fs.write / shell.exec) are
+        # auto-approved in autonomous dispatch is now an EXPLICIT, audited
+        # setting rather than a silent hardcoded auto-approve. Both paths emit
+        # APPROVAL_REQUESTED/RESOLVED events, so the operator can see in the
+        # audit log that approval was resolved by policy config, not a human.
+        resolver = (
+            auto_approve_resolver
+            if self._settings.dispatch_auto_approve_tools
+            else auto_deny_resolver
+        )
+        approvals = ApprovalQueue(bus, resolver)
         executor = ToolExecutor(
             registry=registry, policy=policy, bus=bus, approvals=approvals
         )
@@ -282,6 +296,17 @@ class DispatchService:
             )
         )
 
+    async def resolve_effective_agent(self, preferred: str | None) -> str | None:
+        """The agent that a dispatch to ``preferred`` will actually run on,
+        after the claude_code→codex/hermes fallback. Lets callers (e.g. the
+        conversation orchestrator) attribute work to who really did it (B4)."""
+        await self._ensure_init()
+        assert self._router is not None
+        if preferred in _DISPATCH_UNSUPPORTED_AGENTS:
+            registered = {r.agent_id for r in self._router.registered()}
+            return next((a for a in _FALLBACK_PRIORITY if a in registered), preferred)
+        return preferred
+
     async def start_dispatch(  # noqa: PLR0912, PLR0915 — multi-fallback path
         self,
         *,
@@ -289,6 +314,7 @@ class DispatchService:
         preferred_agent: str | None = None,
         parent_task_id: str | None = None,
         from_agent: str | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> RunningDispatch:
         """Spawn a sub-agent for this goal and return immediately with a
         handle. Use get_status / wait_for / cancel to drive it."""
@@ -376,6 +402,11 @@ class DispatchService:
             )
         if parent_task_id:
             task_inputs["parent_task_id"] = parent_task_id
+        # B6: thread required capabilities so the router can match by
+        # capability instead of falling through to the first registered agent.
+        # Only honored when no explicit preferred_agent is given.
+        if required_capabilities:
+            task_inputs["required_capabilities"] = list(required_capabilities)
         task = await self._task_manager.create(
             goal=goal,
             inputs=task_inputs,
@@ -397,29 +428,10 @@ class DispatchService:
                 if parent_task:
                     resolved_from = parent_task
 
-        # Audit-log the handoff so chain visualization has explicit linkage
-        # between parent and child tasks. Even when parent_task_id is absent,
-        # the event lets us reconstruct single-hop chains downstream.
-        # `from_agent` + `to_agent` make the chain-of-custody explicit at
-        # every hop — every timeline + the chain swimlane render this as
-        # "from → to".
-        if self._audit is not None:
-            await self._audit.record(
-                Event(
-                    kind=EventKind.HANDOFF_INITIATED,
-                    agent_id="exocortex",
-                    task_id=task.id,
-                    payload={
-                        "from_agent": resolved_from,
-                        "to_agent": preferred_agent or "auto",
-                        "child_task_id": str(task.id),
-                        "parent_task_id": parent_task_id,
-                        "goal_preview": goal[:200],
-                        "fallback_used": fallback_used,
-                    },
-                )
-            )
-
+        # Resolve the routing target BEFORE auditing so the chain-of-custody
+        # event records the agent that actually ran the work — never the
+        # placeholder "auto" (B5), which broke inheritance for capability-routed
+        # children.
         try:
             if preferred_agent:
                 current = self._router.resolve(preferred_agent)
@@ -427,6 +439,43 @@ class DispatchService:
                 current = self._router.route(task)
         except Exception as e:
             raise DispatchError(f"routing failed: {e}") from e
+
+        # Audit-log the handoff so chain visualization has explicit linkage
+        # between parent and child tasks. `from_agent` + `to_agent` make the
+        # chain-of-custody explicit at every hop — every timeline + the chain
+        # swimlane render this as "from → to". An unattributed dispatch is
+        # operator-initiated, so we record "operator" rather than leaving the
+        # hop anonymous (B5).
+        if self._audit is not None:
+            evt_parent_uuid: UUID | None = None
+            if parent_task_id:
+                try:
+                    evt_parent_uuid = UUID(parent_task_id)
+                except (ValueError, TypeError):
+                    evt_parent_uuid = None
+            await self._audit.record(
+                Event(
+                    kind=EventKind.HANDOFF_INITIATED,
+                    agent_id="exocortex",
+                    # C1: the platform emits this event, but the receiving
+                    # agent is the real actor — surface it as a typed field.
+                    actor=current.agent_id,
+                    task_id=task.id,
+                    parent_task_id=evt_parent_uuid,
+                    reason=(
+                        f"{resolved_from or 'operator'} → {current.agent_id}"
+                        + (" (fallback)" if fallback_used else "")
+                    ),
+                    payload={
+                        "from_agent": resolved_from or "operator",
+                        "to_agent": current.agent_id,
+                        "child_task_id": str(task.id),
+                        "parent_task_id": parent_task_id,
+                        "goal_preview": goal[:200],
+                        "fallback_used": fallback_used,
+                    },
+                )
+            )
 
         worktree_mgr = NullWorktreeManager(self._worktree_root)
         worktree = await worktree_mgr.create(task.id)
@@ -541,6 +590,7 @@ class DispatchService:
         max_wait_seconds: int = 300,
         parent_task_id: str | None = None,
         from_agent: str | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> dict[str, Any]:
         """Backward-compat synchronous dispatch. Starts a dispatch, waits
         up to max_wait_seconds, then — on timeout — CANCELS the sub-agent
@@ -553,6 +603,7 @@ class DispatchService:
             preferred_agent=preferred_agent,
             parent_task_id=parent_task_id,
             from_agent=from_agent,
+            required_capabilities=required_capabilities,
         )
         snap = await self.wait_for(rd.task_id, wait_seconds=max_wait_seconds)
         if snap["status"] == "running":
@@ -631,5 +682,8 @@ def make_test_dispatch_service(
     svc._router = router  # noqa: SLF001
     svc._task_manager = task_manager  # noqa: SLF001
     svc._deps = deps  # noqa: SLF001
+    # Wire the dispatch-level audit sink like production does, so the
+    # chain-of-custody HANDOFF_INITIATED/DISPATCH_* events are exercised.
+    svc._audit = AuditLog(settings.audit_log_path)  # noqa: SLF001
     svc._initialized = True  # noqa: SLF001
     return svc

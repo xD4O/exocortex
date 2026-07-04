@@ -1,8 +1,11 @@
 """REST + WebSocket routes for the operator web UI.
 
 Everything here reads from the same stores the CLI uses — `AuditLog`,
-`DurableMemoryStore`, `HybridRetrieval`. No new event kinds, no new contracts,
-no mutating endpoints. The UI is a lens, not a second source of truth.
+`DurableMemoryStore`, `HybridRetrieval` — and treats them as the single source
+of truth. Most routes are read-only lenses; a few explicit mutating endpoints
+exist (conversation run/close/delete, settings toggles, profile answer/redact).
+Those, and the event WebSocket, are protected by the same-origin / token guard
+in `security.py` (A2) so a cross-site page cannot drive them.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from exocortex.memory.llm import LocalLLMUnavailableError, OllamaChatProvider
 from exocortex.memory.profile import PROFILE_DIMENSIONS, ProfileService
 from exocortex.memory.retrieval import HybridRetrieval
 from exocortex.observability.audit import AuditLog
+from exocortex.observability.humanize import humanize_event
 from exocortex.observability.logging import get_logger
 from exocortex.operator.mcp.dispatch import DispatchService
 from exocortex.operator.web.events import EventBroadcaster
@@ -194,7 +198,9 @@ def _event_preview(event: Event) -> str:
         return str(fn(p))
     if event.kind.value.startswith("dispatch."):
         return f"task={str(p.get('task_id') or '?')[:8]}"
-    return ""
+    # Kinds without a bespoke web formatter (sessions, profile, conversations,
+    # approvals…) fall back to the shared humanizer so they're no longer blank.
+    return humanize_event(event)
 
 
 def _record_to_dict(record: MemoryRecord) -> dict[str, Any]:

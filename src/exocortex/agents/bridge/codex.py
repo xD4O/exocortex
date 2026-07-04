@@ -26,12 +26,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from exocortex.agents.bridge.actions import (
-    AgentAction,
-    TaskDone,
-    WriteMemory,
-)
+from exocortex.agents.bridge.actions import AgentAction
 from exocortex.agents.bridge.base import Bridge
+from exocortex.agents.bridge.protocol import build_response_actions, compose_agent_prompt
 from exocortex.contracts import AgentCapability, Handoff, Task
 
 # Session / conversation id fields that may appear in codex's JSONL stream.
@@ -136,9 +133,10 @@ class CodexSubprocessProcess:
     async def start(
         self, task: Task, handoff_in: Handoff | None = None
     ) -> None:
-        prompt = (
-            handoff_in.goal_restatement if handoff_in is not None else task.goal
-        )
+        # B2: give the receiving agent the FULL inbound bundle (constraints,
+        # prior decisions, open questions, expected output) — not just the
+        # restated goal it used to see.
+        prompt = compose_agent_prompt(task, handoff_in)
 
         resume = None
         if handoff_in is not None:
@@ -201,10 +199,9 @@ class CodexSubprocessProcess:
         self._session_id = self._extract_session_id(self._last_stdout)
 
         response = self._last_message or self._last_stdout.strip()
-        self._actions = [
-            WriteMemory(content=response, durable=True, type="codex_response"),
-            TaskDone(success=True),
-        ]
+        # B1: if the agent's final message asks to hand off (@handoff-to: …),
+        # emit RequestHandoff so the chain can actually continue past this hop.
+        self._actions = build_response_actions(response, response_type="codex_response")
 
     async def next_action(self) -> AgentAction | None:
         if not self._alive or not self._actions:

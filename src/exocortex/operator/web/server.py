@@ -19,6 +19,7 @@ from exocortex.memory.durable import DurableMemoryStore
 from exocortex.observability.audit import AuditLog
 from exocortex.operator.web.events import EventBroadcaster, run_tailer_task, stop_tailer
 from exocortex.operator.web.routes import build_router
+from exocortex.operator.web.security import LocalGuardMiddleware
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -47,9 +48,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Exocortex Operator UI",
-        description="Read-only lens over the audit log + memory store.",
+        description=(
+            "Operator lens over the audit log + memory store. Mostly reads, "
+            "plus a few explicit mutating endpoints (conversation run/close, "
+            "settings toggles) guarded by a same-origin / token check."
+        ),
         version="0.1.0",
         lifespan=lifespan,
+    )
+    # Local-trust guard: reject cross-origin browser traffic (CSRF + WS
+    # hijack) and, when configured, require a shared token. Added last so it
+    # wraps outermost and sees every request + WebSocket handshake.
+    app.add_middleware(
+        LocalGuardMiddleware,
+        allowed_origins=settings.web_allowed_origin_set(),
+        token=settings.web_token,
     )
     app.include_router(
         build_router(

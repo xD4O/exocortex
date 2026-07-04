@@ -21,6 +21,7 @@ class EventKind(StrEnum):
     SESSION_CLOSED = "session.closed"
 
     MEMORY_WRITTEN = "memory.written"
+    MEMORY_READ = "memory.read"
     MEMORY_FORGOTTEN = "memory.forgotten"
     MEMORY_MERGED = "memory.merged"
     MEMORY_CHAT = "memory.chat"
@@ -70,6 +71,15 @@ class Event(BaseModel):
     task_id: UUID | None = None
     session_id: UUID | None = None
     agent_id: str | None = None
+
+    # Chain-of-custody + causality, promoted from the untyped payload (C1).
+    # `agent_id` is the emitter (often the platform, e.g. "exocortex"); `actor`
+    # is the agent that actually performed the work, so WHO/WHY/ORDER can be
+    # reconstructed without payload spelunking and survive sloppy producers.
+    actor: str | None = None
+    parent_task_id: UUID | None = None
+    caused_by_event_id: UUID | None = None
+    reason: str | None = None
 
     payload: dict[str, Any] = Field(default_factory=dict)
     policy_decision: PolicyDecision | None = None
