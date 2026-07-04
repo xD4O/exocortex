@@ -47,6 +47,7 @@ EXPECTED_TOOLS = {
     "fs_list",
     "shell_exec",
     "insight_propose",
+    "reflect",
 }
 
 

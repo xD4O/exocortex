@@ -1042,6 +1042,26 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             action_payload=action_payload,
         )
 
+    @mcp.tool()
+    async def reflect(
+        since_days: Annotated[
+            int | None,
+            Field(description="Reflect over the last N days (overrides the default window)."),
+        ] = None,
+        all_history: Annotated[
+            bool, Field(description="Reflect over ALL memory.")
+        ] = False,
+    ) -> dict[str, Any]:
+        """Run one reflection pass: dispatch a reflective agent over recent memory;
+        it proposes insights."""
+        if not effective_settings.reflect_enabled:
+            return {"status": "disabled", "hint": "set EXOCORTEX_REFLECT_ENABLED=true"}
+        from exocortex.memory.reflect import run_reflection  # noqa: PLC0415
+        return await run_reflection(audit=handlers.audit, store=handlers.store,
+                                    settings=effective_settings,
+                                    dispatch=dispatcher.dispatch,
+                                    since_days=since_days, all_history=all_history)
+
     return mcp
 
 
