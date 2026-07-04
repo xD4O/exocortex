@@ -35,3 +35,16 @@ async def test_projection_status(tmp_path: Path) -> None:
     allq = await svc.list_insights(include_resolved=True)
     by_id = {i["insight_id"]: i["status"] for i in allq}
     assert by_id == {a: "proposed", b: "accepted", c: "dismissed"}
+
+
+@pytest.mark.asyncio
+async def test_projection_newest_first_and_preserves_payload(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "a.jsonl")
+    svc = ReflectionService(audit=audit)
+    for iid in ("first", "second", "third"):
+        await audit.record(_proposed(iid))
+    items = await svc.list_insights()
+    # Newest proposed first — would fail if `.reverse()` were dropped.
+    assert [i["insight_id"] for i in items] == ["third", "second", "first"]
+    # Non-status payload fields survive the fold.
+    assert all(i.get("kind") == "gap" and "title" in i for i in items)
