@@ -7,10 +7,13 @@ and this project follows semantic versioning at the contract layer (every
 contract carries a `schema_version`; additive-only changes within a major
 version).
 
-## [Unreleased] — v0.2 hardening (Phase 0: safety foundation)
+## [0.2.0] — 2026-07-03
 
-Closes the gap between the platform's advertised safety guarantees and what
-the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
+The v0.2 hardening batch. Closes the gap between the platform's advertised
+guarantees and what the code enforced, across four tracks — security, agent
+handoffs, observability, and the web UI. See `docs/IMPROVEMENT-PLAN.md` for the
+full audit and roadmap. (The UI track's browser-verified tail — timeline
+diff-render, constellation perf, drawer focus-traps — is tracked as follow-up.)
 
 ### Security
 
@@ -256,4 +259,5 @@ First public release.
 - Real-binary integration tests are opt-in (`EXOCORTEX_RUN_HERMES=1`,
   `EXOCORTEX_RUN_CODEX=1`).
 
+[0.2.0]: https://github.com/xD4O/exocortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/xD4O/exocortex/releases/tag/v0.1.0
