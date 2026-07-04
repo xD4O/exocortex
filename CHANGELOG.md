@@ -7,7 +7,7 @@ and this project follows semantic versioning at the contract layer (every
 contract carries a `schema_version`; additive-only changes within a major
 version).
 
-## [Unreleased] — Reflect
+## [0.3.0] — 2026-07-04
 
 A reflective agent subsystem that observes recent memory and proposes typed,
 grounded Insights — contradiction, pattern, gap, synthesis — into a reviewable
@@ -270,5 +270,6 @@ First public release.
 - Real-binary integration tests are opt-in (`EXOCORTEX_RUN_HERMES=1`,
   `EXOCORTEX_RUN_CODEX=1`).
 
+[0.3.0]: https://github.com/xD4O/exocortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/xD4O/exocortex/releases/tag/v0.2.0
 [0.1.0]: https://github.com/xD4O/exocortex/releases/tag/v0.1.0
