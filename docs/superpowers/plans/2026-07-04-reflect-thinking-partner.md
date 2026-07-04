@@ -6,7 +6,7 @@
 
 **Architecture:** Event-sourced, mirroring the conversations subsystem. New `REFLECTION_*` / `INSIGHT_*` audit events are the source of truth; the queue, web page, and session-startup surfacing are all projections over `AuditLog`. Insights are created only through a new `insight_propose` MCP tool (structured, grounded, validated). A reflective run is an ordinary dispatch to a capable agent. Nothing mutates memory/policy until the operator explicitly applies an accepted insight.
 
-**Tech Stack:** Python 3.9+ · Pydantic v2 · anyio · FastMCP · FastAPI · typer · pytest + pytest-asyncio. (Match existing patterns in `src/exocortex/`.)
+**Tech Stack:** Python **3.12+** (`requires-python = ">=3.12"`; the code uses `StrEnum` and `X | None`) · Pydantic v2 · anyio · FastMCP · FastAPI · typer · pytest + pytest-asyncio. (Match existing patterns in `src/exocortex/`.)
 
 ## Global Constraints
 
@@ -16,8 +16,9 @@
 - Insights are always `confidence=inferred` and inert until accepted; accept proposes, a separate apply confirms. Never auto-mutate memory or policy.
 - Reflect is **off by default** (`EXOCORTEX_REFLECT_ENABLED=false`), like memory-chat.
 - Env vars use the `EXOCORTEX_` prefix (pydantic-settings), defaults conservative.
-- `ruff check src tests` and `mypy src` must stay clean; the full `pytest` suite must stay green.
+- `ruff check src tests` and `mypy src` must stay clean; the full `pytest` suite must stay green. **Watch for unused imports in test files** — the suite lints `tests/` too.
 - Tests use `ScriptedProcess` (from `exocortex.agents.bridge.process`) — never real `codex`/`hermes` binaries.
+- **Every new MCP tool MUST be added to `EXPECTED_TOOLS` in `tests/unit/test_mcp_server_smoke.py`.** That test asserts `names == EXPECTED_TOOLS` (exact set) — a new tool without the corresponding `EXPECTED_TOOLS` entry turns the suite red. This plan adds two tools: `insight_propose` (Task 4) and `reflect` (Task 5).
 
 ---
 
@@ -289,7 +290,7 @@ git commit -m "feat(reflect): ReflectionService queue projection over insight ev
 ```python
 # tests/unit/test_reflect_window.py
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 import pytest
 from exocortex.contracts import Event, EventKind
@@ -471,15 +472,19 @@ Then register the tool inside `build_mcp_server` (after the other tools):
                                       action_type=action_type, action_payload=action_payload)
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Register the tool in the smoke-test allowlist**
 
-Run: `uv run pytest tests/unit/test_insight_propose.py -q`
-Expected: PASS.
+Add `"insight_propose"` to the `EXPECTED_TOOLS` set in `tests/unit/test_mcp_server_smoke.py` (near the top of the file). Without this, `test_expected_tools` fails with `missing/extra tools: {'insight_propose'}`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `uv run pytest tests/unit/test_insight_propose.py tests/unit/test_mcp_server_smoke.py -q`
+Expected: PASS (both — the new tool test and the smoke test that now expects `insight_propose`).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/exocortex/config.py src/exocortex/operator/mcp/server.py tests/unit/test_insight_propose.py
+git add src/exocortex/config.py src/exocortex/operator/mcp/server.py tests/unit/test_insight_propose.py tests/unit/test_mcp_server_smoke.py
 git commit -m "feat(reflect): insight_propose MCP tool + reflect config"
 ```
 
@@ -593,9 +598,9 @@ async def test_start_and_complete_run(tmp_path: Path) -> None:
     assert completed.payload["insight_count"] == 3
 ```
 
-- [ ] **Step 6: Implement start_run/complete_run**
+- [ ] **Step 6: Implement start_run / complete_run / count_for_run**
 
-Add to `ReflectionService` (import `Event`, `new_id` from `exocortex.contracts` / `.common`):
+Add to `ReflectionService` (import `Event`, `EventKind` — already imported — and `new_id` from `exocortex.contracts.common`):
 
 ```python
     async def start_run(self, *, agent: str, window_from) -> str:
@@ -613,11 +618,95 @@ Add to `ReflectionService` (import `Event`, `new_id` from `exocortex.contracts` 
             reason=f"reflection {status} ({count} insights)",
             payload={"reflection_id": reflection_id, "status": status,
                      "insight_count": count, "error": error}))
+
+    async def count_for_run(self, reflection_id: str) -> int:
+        # Count only THIS run's insights — not every insight ever proposed.
+        items = await self.list_insights(include_resolved=True)
+        return sum(1 for i in items if i.get("reflection_id") == reflection_id)
 ```
 
-- [ ] **Step 7: Add the `reflect` MCP tool (orchestrates a dispatch)**
+- [ ] **Step 7: Implement `run_reflection` as a service function (dispatcher injected)**
 
-In `build_mcp_server` (`server.py`), add. It gates on `reflect_enabled`, computes the window, gathers records via the durable store, dispatches the goal, and brackets with start/complete:
+This is the shared orchestration the MCP tool AND the CLI (Task 9) both call — write it once, testable with a fake dispatcher, so there is no later "extract" refactor. Add to `src/exocortex/memory/reflect.py` (module-level function; import `build_reflect_goal` lazily to avoid a coordination→memory import cycle):
+
+```python
+async def run_reflection(*, audit, store, settings, dispatch,
+                         since_days: int | None = None,
+                         all_history: bool = False) -> dict:
+    """Run one reflection pass. `dispatch` is a callable with the same kwargs
+    as DispatchService.dispatch (goal, preferred_agent, from_agent,
+    max_wait_seconds) — injected so this is unit-testable without a real agent.
+    Records REFLECTION_STARTED/COMPLETED; the dispatched agent proposes insights
+    via the insight_propose tool during the run."""
+    from exocortex.coordination.reflect_goal import build_reflect_goal
+    svc = ReflectionService(audit=audit)
+    lo = await svc.window_from(max_days=settings.reflect_window_days,
+                               override_days=since_days, all_history=all_history)
+    pairs = await store.all_with_embeddings()
+    records = [r for r, _ in pairs if lo is None or r.timestamp >= lo]
+    agent = settings.reflect_agent or "codex"
+    rid = await svc.start_run(agent=agent, window_from=lo)
+    goal = build_reflect_goal(rid, records, settings.reflect_max_insights)
+    try:
+        result = await dispatch(goal=goal,
+                                preferred_agent=settings.reflect_agent or None,
+                                from_agent="reflect", max_wait_seconds=600)
+        count = await svc.count_for_run(rid)          # only this run's insights
+        await svc.complete_run(rid, status="completed", count=count)
+        return {"status": "completed", "reflection_id": rid,
+                "insight_count": count,
+                "dispatched_to": (result or {}).get("dispatched_to")}
+    except Exception as e:  # noqa: BLE001 — record failure, keep proposed insights
+        await svc.complete_run(rid, status="failed", count=0, error=str(e))
+        return {"status": "failed", "reflection_id": rid, "error": str(e)}
+```
+
+- [ ] **Step 8: Write the end-to-end test with a fake dispatcher**
+
+This is the ScriptedProcess-equivalent for reflection: a fake `dispatch` that stands in for the real agent by proposing insights (parsing the run id out of the goal, which proves the goal carries it). It exercises window → goal → dispatch → propose → count → complete without a real binary.
+
+```python
+# tests/unit/test_reflect_run.py  (append to the file from Step 5)
+import re
+from exocortex.config import Settings
+from exocortex.memory.durable import DurableMemoryStore
+from exocortex.memory.embedding import DeterministicEmbeddingProvider
+from exocortex.contracts import Confidence, MemoryRecord, MemoryScope
+from exocortex.operator.mcp.server import _propose_insight
+from exocortex.memory.reflect import run_reflection
+
+
+@pytest.mark.asyncio
+async def test_run_reflection_counts_only_this_run(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "a.jsonl")
+    store = DurableMemoryStore(tmp_path / "m.db")
+    emb = DeterministicEmbeddingProvider()
+    rec = MemoryRecord(type="observation", content="chose SQLite", source="codex",
+                       confidence=Confidence.OBSERVED, scope=MemoryScope.PROJECT,
+                       scope_id="exocortex")
+    await store.write(rec, embedding=emb.embed(rec.content))
+
+    async def fake_dispatch(*, goal, **kwargs):
+        rid = re.search(r"Reflection run id: (\S+)", goal).group(1)
+        await _propose_insight(audit, kind="synthesis", title="t1", detail="d",
+                               refs=[str(rec.id)], reflection_id=rid)
+        await _propose_insight(audit, kind="gap", title="t2", detail="d",
+                               refs=[str(rec.id)], reflection_id=rid)
+        return {"dispatched_to": "codex"}
+
+    settings = Settings(reflect_window_days=7, reflect_max_insights=20)
+    out = await run_reflection(audit=audit, store=store, settings=settings,
+                               dispatch=fake_dispatch, all_history=True)
+    assert out["status"] == "completed"
+    assert out["insight_count"] == 2          # only this run's two insights
+    completed = [e for e in await audit.read_all()
+                 if e.kind == EventKind.REFLECTION_COMPLETED][0]
+    assert completed.payload["insight_count"] == 2
+```
+
+- [ ] **Step 9: Add the thin `reflect` MCP tool (wraps `run_reflection`)**
+
+In `build_mcp_server` (`server.py`). It only gates on the flag and delegates — no orchestration logic to duplicate later:
 
 ```python
     @mcp.tool()
@@ -628,41 +717,24 @@ In `build_mcp_server` (`server.py`), add. It gates on `reflect_enabled`, compute
         """Run one reflection pass: dispatch a reflective agent over recent memory; it proposes insights."""
         if not effective_settings.reflect_enabled:
             return {"status": "disabled", "hint": "set EXOCORTEX_REFLECT_ENABLED=true"}
-        from exocortex.memory.reflect import ReflectionService
-        from exocortex.coordination.reflect_goal import build_reflect_goal
-        svc = ReflectionService(audit=handlers.audit)
-        lo = await svc.window_from(max_days=effective_settings.reflect_window_days,
-                                   override_days=since_days, all_history=all_history)
-        records = [r for r, _ in await handlers.store.all_with_embeddings()
-                   if lo is None or r.timestamp >= lo]
-        agent = effective_settings.reflect_agent or "codex"
-        rid = await svc.start_run(agent=agent, window_from=lo)
-        goal = build_reflect_goal(rid, records, effective_settings.reflect_max_insights)
-        try:
-            result = await dispatcher.dispatch(
-                goal=goal,
-                preferred_agent=effective_settings.reflect_agent or None,
-                from_agent="reflect",
-                max_wait_seconds=600,
-            )
-            count = len(await svc.list_insights(include_resolved=True))
-            await svc.complete_run(rid, status="completed", count=count)
-            return {"status": "completed", "reflection_id": rid, "dispatched_to": result.get("dispatched_to")}
-        except Exception as e:  # noqa: BLE001 — record failure, keep proposed insights
-            await svc.complete_run(rid, status="failed", count=0, error=str(e))
-            return {"status": "failed", "reflection_id": rid, "error": str(e)}
+        from exocortex.memory.reflect import run_reflection
+        return await run_reflection(audit=handlers.audit, store=handlers.store,
+                                    settings=effective_settings,
+                                    dispatch=dispatcher.dispatch,
+                                    since_days=since_days, all_history=all_history)
 ```
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [ ] **Step 10: Register the tool + run tests**
 
-Run: `uv run pytest tests/unit/test_reflect_goal.py tests/unit/test_reflect_run.py -q`
+Add `"reflect"` to `EXPECTED_TOOLS` in `tests/unit/test_mcp_server_smoke.py`.
+Run: `uv run pytest tests/unit/test_reflect_goal.py tests/unit/test_reflect_run.py tests/unit/test_mcp_server_smoke.py -q`
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add src/exocortex/coordination/reflect_goal.py src/exocortex/memory/reflect.py src/exocortex/operator/mcp/server.py tests/unit/test_reflect_goal.py tests/unit/test_reflect_run.py
-git commit -m "feat(reflect): reflect goal builder + run orchestration + reflect MCP tool"
+git add src/exocortex/coordination/reflect_goal.py src/exocortex/memory/reflect.py src/exocortex/operator/mcp/server.py tests/unit/test_reflect_goal.py tests/unit/test_reflect_run.py tests/unit/test_mcp_server_smoke.py
+git commit -m "feat(reflect): goal builder + run_reflection service + reflect MCP tool"
 ```
 
 ---
@@ -921,19 +993,17 @@ Expected: FAIL — `KeyError: 'pending_insights'`.
 
 - [ ] **Step 3: Implement**
 
-In `handlers.py`, inside `session_startup`, before building the return dict:
+In `handlers.py`, `session_startup` builds `out = summary.to_dict()`, sets `out["profile_voice"] = voice`, and ends with `return out`. Insert this immediately **before `return out`** (so it sits alongside `profile_voice`):
 
 ```python
         from exocortex.memory.reflect import ReflectionService
         _pending = await ReflectionService(audit=self.audit).list_insights()
-        pending_insights = {
+        out["pending_insights"] = {
             "count": len(_pending),
             "top": [{"insight_id": i["insight_id"], "kind": i.get("kind"),
                      "title": i.get("title")} for i in _pending[:5]],
         }
 ```
-
-Add `"pending_insights": pending_insights` to the returned dict.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -956,7 +1026,7 @@ git commit -m "feat(reflect): surface pending insights in session_startup"
 - Test: `tests/unit/test_cli_extended.py` (extend)
 
 **Interfaces:**
-- Consumes: `ReflectionService` (list/accept/dismiss), `DispatchService` (`reflect` run — reuse the MCP path or call the service directly), `render`/`humanize` for display.
+- Consumes: `ReflectionService` (list/accept/dismiss), `run_reflection` (Task 5 — the shared service function), `DispatchService`, `render`/`humanize` for display.
 - Produces: `precog insights` (list open), `precog insights show <id>`, `precog insights accept <id> [--apply]`, `precog insights dismiss <id>`, `precog reflect [--since N] [--all]`.
 
 - [ ] **Step 1: Write the failing test (list path, no dispatch)**
@@ -1000,7 +1070,7 @@ Expected: FAIL — no `insights` command.
 
 - [ ] **Step 3: Implement the CLI**
 
-In `cli.py`, follow the existing `precog memory` sub-typer pattern. Add an `insights` Typer group with `list` (default), `show`, `accept` (`--apply/--no-apply`), `dismiss`, each building `AuditLog(settings.audit_log_path)` + `ReflectionService` and running via `asyncio.run`/`anyio.run` like the other commands. Add `reflect` as a top-level command that calls the same orchestration as the `reflect` MCP tool (extract that body into a shared `async def run_reflection(settings, since_days, all_history)` in `memory/reflect.py` or a small `operator/reflect_runner.py`, and have both the MCP tool and CLI call it — DRY). Display insights with `render`/`humanize`. (Show the drafted action on `accept` without `--apply`; perform it with `--apply`.)
+In `cli.py`, follow the existing `precog memory` sub-typer pattern. Add an `insights` Typer group with `list` (default), `show`, `accept` (`--apply/--no-apply`), `dismiss`, each building `AuditLog(settings.audit_log_path)` + `ReflectionService` and running via `asyncio.run`/`anyio.run` like the other commands. Add `reflect` as a top-level command that calls the **already-shared** `run_reflection` from Task 5 (`from exocortex.memory.reflect import run_reflection`), constructing a `DispatchService(settings=settings)` and passing `dispatch=dispatcher.dispatch` — no new orchestration, no extraction. Display insights with `render`/`humanize`. (On `accept` without `--apply` show the drafted action; with `--apply` perform it, passing `store` + `DeterministicEmbeddingProvider()`.)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1060,6 +1130,8 @@ Expected: FAIL — 404.
 
 In `routes.py` (inside `build_router`, using the injected `audit`), add:
 
+`DeterministicEmbeddingProvider` is already imported in `routes.py` (used elsewhere); reuse it. No unused params (they trip ruff).
+
 ```python
     from exocortex.memory.reflect import ReflectionService
 
@@ -1069,7 +1141,7 @@ In `routes.py` (inside `build_router`, using the injected `audit`), add:
         return {"items": await svc.list_insights(include_resolved=include_resolved)}
 
     @router.post("/api/insights/{insight_id}/dismiss")
-    async def dismiss_insight(insight_id: str, request: Request) -> dict[str, Any]:
+    async def dismiss_insight(insight_id: str) -> dict[str, Any]:
         return await ReflectionService(audit=audit).dismiss(insight_id)
 
     @router.post("/api/insights/{insight_id}/accept")
@@ -1081,6 +1153,8 @@ In `routes.py` (inside `build_router`, using the injected `audit`), add:
         return await ReflectionService(audit=audit).accept(
             insight_id, apply=True, store=store, embedder=DeterministicEmbeddingProvider())
 ```
+
+(If `DeterministicEmbeddingProvider` is *not* already imported in `routes.py`, add `from exocortex.memory.embedding import DeterministicEmbeddingProvider` — verify before running.)
 
 Add the `/reflect` page route in `server.py` mirroring the other `FileResponse` pages, and a `reflect.html` + `reflect.js` that fetch `/api/insights` and render cards grouped by kind with accept/dismiss buttons (reuse `Exo.fetchJSON`, `Exo.el`, `Exo.agentColor`, `Exo.connectWs("/api/events", …)` to refetch on `INSIGHT_*`/`REFLECTION_*` events). Add a `reflect` nav link to each page's header.
 
@@ -1138,7 +1212,25 @@ git commit -m "docs(reflect): changelog, README, .env.example, roadmap"
 - Humanize sentences → Task 7. ✓
 - Config (off by default, caps) → Task 4. ✓
 - Error handling (failed run keeps proposed insights; empty refs rejected; no-new-memory = zero insights) → Tasks 4, 5, 6. ✓
-- Testing via ScriptedProcess / projection → throughout; the reflective-agent end-to-end with a scripted process is exercised implicitly via `_propose_insight` + projection (a full ScriptedProcess dispatch test can be added under Task 5 if desired).
+- Testing via ScriptedProcess / projection → throughout; the reflective run is now exercised **end-to-end** by Task 5 Step 8 (a fake dispatcher stands in for the agent, proposes insights, and the run's count/complete are asserted).
+
+---
+
+## Reviewer pass (Fable 5) — gaps found and fixed
+
+Verified the plan's code claims against the live codebase and corrected these before handing to subagents:
+
+1. **Suite-red blocker:** `test_mcp_server_smoke.py` asserts `names == EXPECTED_TOOLS` (exact set). Adding `insight_propose` / `reflect` without updating that set turns the suite red. → Added explicit `EXPECTED_TOOLS` update steps to Tasks 4 and 5, plus a Global Constraint.
+2. **Refactor churn removed (subagent-critical):** the reflect orchestration was written inline in `server.py` (Task 5) then "extracted" in Task 9. → Restructured so `run_reflection()` is a tested service function in `reflect.py` from Task 5; the MCP tool and CLI both call it. No task rewrites another task's code.
+3. **Correctness bug:** `REFLECTION_COMPLETED.insight_count` counted *all* insights ever, not this run's. → Added `count_for_run(reflection_id)` filtering by run.
+4. **Missing end-to-end test:** the orchestration had no test. → Added a fake-dispatcher test (Task 5 Step 8).
+5. **Factual:** header said "Python 3.9+"; the repo is `>=3.12` (uses `StrEnum`, `X | None`). → Corrected.
+6. **Lint gate:** Task 3's test imported unused `datetime`/`timezone`; Task 10's dismiss route had an unused `request: Request`. → Removed (the suite lints `tests/`).
+7. **Zero-context precision:** Task 8's injection point is now exact (`out["pending_insights"] = …` before `return out`, alongside `profile_voice`).
+
+**Verified-correct claims (no change needed):** `MemoryRecord.tags` exists; `handlers.store/.embedder/.retrieval/.audit` all present; `all_with_embeddings()` returns `(record, embedding)` pairs; `now()` is tz-aware (UTC) so window arithmetic is sound; `build_router` receives `store`; Pydantic v2 `Field(min_length=1)` validates non-empty lists.
+
+**Residual risks (accept for v1, worth a note):** `run_reflection` loads all embeddings via `all_with_embeddings()` then filters by timestamp — fine under the window cap, but a `list_since(ts)` store method would avoid loading vectors; and reflective-agent compliance with `insight_propose` (vs free-texting) remains the key real-world unknown, now testable via the fake-dispatcher harness before any real binary runs.
 
 **2. Placeholder scan:** Task 9 step 3 and Task 10 step 3 describe UI/CLI wiring rather than full literal code, because they must follow existing per-file patterns (the `precog memory` sub-typer; the per-page nav include) that a literal block would misrepresent — the interfaces and behaviors are fully specified, and the reviewer should mirror the cited existing patterns. Every backend task has complete code.
 
