@@ -18,6 +18,7 @@ from exocortex.contracts.handoff import (
     ToolInvocationCursor,
     WorkspaceState,
 )
+from exocortex.contracts.insight import Insight, InsightKind, SuggestedAction
 from exocortex.contracts.memory import MemoryRecord
 from exocortex.contracts.session import Session
 from exocortex.contracts.task import Task
@@ -34,6 +35,8 @@ __all__ = [
     "Event",
     "EventKind",
     "Handoff",
+    "Insight",
+    "InsightKind",
     "MemoryRecord",
     "MemoryScope",
     "PolicyDecision",
@@ -41,6 +44,7 @@ __all__ = [
     "Provenance",
     "Session",
     "SessionStatus",
+    "SuggestedAction",
     "Task",
     "TaskStatus",
     "ToolInvocation",
