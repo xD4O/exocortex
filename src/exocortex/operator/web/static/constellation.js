@@ -95,7 +95,8 @@ const state = {
     scopes: new Set(["session", "task", "project", "global"]),
     sources: new Set(["codex", "claude_code", "hermes", "operator", "__other__"]),
     confidences: new Set(["observed", "inferred", "asserted", "external_claim"]),
-    maxAgeDays: 30,
+    maxAgeDays: Infinity, // show ALL by default — this is a durable store, not
+    // a 30-day window (the old default permanently hid older records).
   },
 };
 
@@ -1529,8 +1530,12 @@ document.querySelectorAll("#filters input[type=checkbox]").forEach((cb) => {
 });
 
 document.getElementById("age-slider").addEventListener("input", (e) => {
-  state.filters.maxAgeDays = Number(e.target.value);
-  document.getElementById("age-label").textContent = state.filters.maxAgeDays;
+  // The top of the range means "all" (unbounded) so old records in this
+  // durable store stay reachable; anything below is a day cutoff.
+  const v = Number(e.target.value);
+  const isAll = v > 365;
+  state.filters.maxAgeDays = isAll ? Infinity : v;
+  document.getElementById("age-label").textContent = isAll ? "all" : v + "d";
   applyFilterMask();
 });
 
@@ -1733,8 +1738,10 @@ async function loadConstellation() {
   const res = await fetch("/api/memory/constellation");
   if (!res.ok) return;
   const data = await res.json();
-  state.records = data.points;
-  document.getElementById("kpi-records").textContent = data.count;
+  // Guard the crash path: a missing `points` used to throw in rebuildLayers.
+  state.records = Array.isArray(data.points) ? data.points : [];
+  document.getElementById("kpi-records").textContent =
+    data.count ?? state.records.length;
   state.hoveredIdx = -1;
   state.selectedIdx = -1;
   rebuildLayers();

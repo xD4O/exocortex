@@ -123,11 +123,18 @@ the code enforced. See `docs/IMPROVEMENT-PLAN.md` for the full four-track plan.
   events" comment. It now uses the shared `connectWs`: a failure-relevant event
   refetches (debounced), and every reconnect reconciles events missed while
   disconnected.
+- **D4 (trust) — the memory constellation stops overstating itself.** The legend
+  claimed `edges = semantic ≥ 0.78`, but edges fall back to layout-proximity
+  when embeddings aren't present — relabeled to the honest `edges = similarity`.
+  The hard 30-day age cap that permanently hid older records from this *durable*
+  store is gone: the age control now defaults to "all" with an explicit
+  unbounded position. Guarded the crash path where a missing `points` field
+  threw during layout.
 
 > The remaining UI items (migrating the duplicated per-page helpers to `Exo.*`,
 > diff-rendering the profile/agents views so a 30s poll can't wipe a half-typed
-> answer, and the constellation trust/perf fixes) are tracked for a pass that
-> can be verified live in a browser.
+> answer, and the constellation's render-on-demand performance work) are tracked
+> for a pass that can be verified live in a browser.
 
 ### Docs
 

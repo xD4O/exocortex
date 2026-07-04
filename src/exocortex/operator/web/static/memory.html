@@ -66,10 +66,10 @@
       <label><input type="checkbox" value="asserted" checked><span class="glyph">○</span> asserted</label>
       <label><input type="checkbox" value="external_claim" checked><span class="glyph">·</span> external_claim</label>
 
-      <h3>Age (days)</h3>
-      <input type="range" id="age-slider" min="0" max="30" step="1" value="30" />
+      <h3>Age</h3>
+      <input type="range" id="age-slider" min="1" max="366" step="1" value="366" />
       <div class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">
-        max: <span id="age-label">30</span>d
+        showing: <span id="age-label">all</span>
       </div>
 
       <h3>Legend</h3>
@@ -89,7 +89,7 @@
         <span style="color:var(--text)">color</span> = scope<br>
         <span style="color:var(--text)">brightness</span> = confidence<br>
         <span style="color:var(--text)">size</span> = activity<br>
-        <span style="color:var(--text)">edges</span> = semantic ≥ 0.78
+        <span style="color:var(--text)">edges</span> = similarity
       </div>
     </aside>
 
