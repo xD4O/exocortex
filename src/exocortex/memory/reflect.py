@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from exocortex.contracts import EventKind
+from exocortex.contracts.common import now
 from exocortex.observability.audit import AuditLog
 
 
@@ -34,3 +36,19 @@ class ReflectionService:
             out.append({**payload, "status": st})
         out.reverse()  # newest first (audit is chronological)
         return out
+
+    async def window_from(self, *, max_days: int, override_days: int | None = None,
+                          all_history: bool = False) -> datetime | None:
+        current = now()
+        if all_history:
+            return None
+        cap = current - timedelta(days=override_days if override_days else max_days)
+        if override_days:
+            return cap
+        last = None
+        for ev in await self.audit.read_all():
+            if ev.kind == EventKind.REFLECTION_COMPLETED:
+                last = ev.timestamp
+        if last is None:
+            return cap
+        return max(last, cap)  # never reflect further back than the cap
