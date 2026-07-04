@@ -97,11 +97,21 @@ async def run_reflection(*, audit: AuditLog, store: Any, settings: Any, dispatch
         result = await dispatch(goal=goal,
                                 preferred_agent=settings.reflect_agent or None,
                                 from_agent="reflect", max_wait_seconds=600)
-        count = await svc.count_for_run(rid)          # only this run's insights
-        await svc.complete_run(rid, status="completed", count=count)
-        return {"status": "completed", "reflection_id": rid,
-                "insight_count": count,
-                "dispatched_to": (result or {}).get("dispatched_to")}
-    except Exception as e:  # noqa: BLE001 — record failure, keep proposed insights
-        await svc.complete_run(rid, status="failed", count=0, error=str(e))
-        return {"status": "failed", "reflection_id": rid, "error": str(e)}
+    except Exception as e:  # noqa: BLE001 — dispatch crashed; keep proposed insights
+        count = await svc.count_for_run(rid)
+        await svc.complete_run(rid, status="failed", count=count, error=str(e))
+        return {"status": "failed", "reflection_id": rid,
+                "insight_count": count, "error": str(e)}
+
+    result = result or {}
+    count = await svc.count_for_run(rid)          # only this run's insights
+    dispatch_status = result.get("status")
+    if dispatch_status in ("failed", "timeout", "cancelled"):
+        await svc.complete_run(rid, status="failed", count=count,
+                               error=result.get("error") or f"dispatch {dispatch_status}")
+        return {"status": "failed", "reflection_id": rid, "insight_count": count,
+                "dispatched_to": result.get("dispatched_to"),
+                "dispatch_status": dispatch_status}
+    await svc.complete_run(rid, status="completed", count=count)
+    return {"status": "completed", "reflection_id": rid, "insight_count": count,
+            "dispatched_to": result.get("dispatched_to")}

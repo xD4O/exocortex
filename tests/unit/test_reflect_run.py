@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,8 @@ async def test_run_reflection_counts_only_this_run(tmp_path: Path) -> None:
                        confidence=Confidence.OBSERVED, scope=MemoryScope.PROJECT,
                        scope_id="exocortex")
     await store.write(rec, embedding=emb.embed(rec.content))
+    await _propose_insight(audit, kind="gap", title="prior", detail="d",
+                           refs=[str(rec.id)], reflection_id=str(uuid.uuid4()))
 
     async def fake_dispatch(*, goal, **kwargs):
         rid = re.search(r"Reflection run id: (\S+)", goal).group(1)
@@ -55,3 +58,37 @@ async def test_run_reflection_counts_only_this_run(tmp_path: Path) -> None:
     completed = [e for e in await audit.read_all()
                  if e.kind == EventKind.REFLECTION_COMPLETED][0]
     assert completed.payload["insight_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_run_reflection_records_failed_on_status(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "a.jsonl")
+    store = DurableMemoryStore(tmp_path / "m.db")
+    settings = Settings(reflect_window_days=7, reflect_max_insights=20)
+
+    async def failing_dispatch(*, goal, **kwargs):
+        return {"status": "timeout", "dispatched_to": "codex"}  # returns, does not raise
+
+    out = await run_reflection(audit=audit, store=store, settings=settings,
+                               dispatch=failing_dispatch, all_history=True)
+    assert out["status"] == "failed"
+    completed = [e for e in await audit.read_all()
+                 if e.kind == EventKind.REFLECTION_COMPLETED][0]
+    assert completed.payload["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_reflection_counts_insight_before_crash(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "a.jsonl")
+    store = DurableMemoryStore(tmp_path / "m.db")
+    settings = Settings(reflect_window_days=7, reflect_max_insights=20)
+
+    async def crash_dispatch(*, goal, **kwargs):
+        rid = re.search(r"Reflection run id: (\S+)", goal).group(1)
+        await _propose_insight(audit, kind="gap", title="t", detail="d",
+                               refs=[str(uuid.uuid4())], reflection_id=rid)
+        raise RuntimeError("boom")
+
+    out = await run_reflection(audit=audit, store=store, settings=settings,
+                               dispatch=crash_dispatch, all_history=True)
+    assert out["status"] == "failed" and out["insight_count"] == 1
