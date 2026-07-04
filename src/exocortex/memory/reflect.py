@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from exocortex.contracts import Event, EventKind
+from exocortex.contracts import Confidence, Event, EventKind, MemoryRecord, MemoryScope
 from exocortex.contracts.common import new_id, now
 from exocortex.observability.audit import AuditLog
 
@@ -73,6 +73,51 @@ class ReflectionService:
         # Count only THIS run's insights — not every insight ever proposed.
         items = await self.list_insights(include_resolved=True)
         return sum(1 for i in items if i.get("reflection_id") == reflection_id)
+
+    async def _find_proposed(self, insight_id: str) -> dict[str, Any] | None:
+        for ev in await self.audit.read_all():
+            if ev.kind == EventKind.INSIGHT_PROPOSED and \
+               (ev.payload or {}).get("insight_id") == insight_id:
+                return dict(ev.payload)
+        return None
+
+    async def dismiss(self, insight_id: str, *, note: str = "") -> dict[str, Any]:
+        await self.audit.record(Event(kind=EventKind.INSIGHT_DISMISSED, actor="operator",
+                                      payload={"insight_id": insight_id, "note": note}))
+        return {"insight_id": insight_id, "status": "dismissed"}
+
+    async def accept(self, insight_id: str, *, apply: bool = False,
+                     store: Any = None, embedder: Any = None) -> dict[str, Any]:
+        payload = await self._find_proposed(insight_id)
+        if payload is None:
+            raise ValueError(f"unknown insight {insight_id}")
+        action = payload.get("suggested_action") or {"type": "none"}
+        acted = None
+        if apply:
+            acted = await self._apply_action(payload, action, store, embedder)
+        await self.audit.record(Event(kind=EventKind.INSIGHT_ACCEPTED, actor="operator",
+                                      payload={"insight_id": insight_id, "acted": acted}))
+        return {"insight_id": insight_id, "status": "accepted",
+                "applied": apply, "proposed_action": action, "acted": acted}
+
+    async def _apply_action(self, payload: dict[str, Any], action: dict[str, Any],
+                            store: Any, embedder: Any) -> dict[str, Any]:
+        atype = action.get("type", "none")
+        if atype == "supersede" and store is not None and embedder is not None:
+            stale_id = action.get("stale_record_id")
+            title = payload.get("title", "")
+            detail = payload.get("detail", "")
+            rec = MemoryRecord(
+                type="correction",
+                content=f"Supersedes {stale_id}: {title} — {detail}",
+                source="reflect", confidence=Confidence.INFERRED,
+                scope=MemoryScope.PROJECT, scope_id="exocortex",
+                tags=["supersedes:" + str(stale_id)])
+            await store.write(rec, embedding=embedder.embed(rec.content))
+            return {"superseded_by": str(rec.id), "stale_record_id": stale_id}
+        # create_rule / track_gap / record_decision: v1 returns the drafted payload
+        # for the caller (CLI/web) to persist on explicit confirm.
+        return {"drafted": action}
 
 
 async def run_reflection(*, audit: AuditLog, store: Any, settings: Any, dispatch: Any,
