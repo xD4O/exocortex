@@ -565,7 +565,7 @@ def insights_accept(
                 insight_id, apply=apply, store=store, embedder=embedder
             )
         except ValueError as e:
-            console.print(f"[red]error:[/red] {e}")
+            console.print(f"[red]error:[/red] {escape(str(e))}")
             raise typer.Exit(code=1) from e
         if apply:
             console.print(f"[green]✓[/green] accepted + applied {insight_id[:8]}")

@@ -378,12 +378,18 @@ class MemoryHandlers:
         except Exception:  # noqa: BLE001
             voice = ""
         out["profile_voice"] = voice
-        _pending = await ReflectionService(audit=self.audit).list_insights()
-        out["pending_insights"] = {
-            "count": len(_pending),
-            "top": [{"insight_id": i["insight_id"], "kind": i.get("kind"),
-                     "title": i.get("title")} for i in _pending[:5]],
-        }
+        if not self.settings.reflect_enabled:
+            out["pending_insights"] = {"count": 0, "top": []}
+        else:
+            try:
+                _pending = await ReflectionService(audit=self.audit).list_insights()
+                out["pending_insights"] = {
+                    "count": len(_pending),
+                    "top": [{"insight_id": i["insight_id"], "kind": i.get("kind"),
+                             "title": i.get("title")} for i in _pending[:5]],
+                }
+            except Exception:  # noqa: BLE001
+                out["pending_insights"] = {"count": 0, "top": []}
         return out
 
     # --- Writes ------------------------------------------------------------

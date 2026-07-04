@@ -189,13 +189,15 @@ async def _propose_insight(
     """
     if not refs:
         raise ValueError("insight requires >=1 grounding refs")
+    ap = dict(action_payload or {})
+    ap.pop("type", None)
     insight = Insight(
         kind=InsightKind(kind),
         title=title,
         detail=detail,
         refs=[UUID(r) for r in refs],
         reflection_id=UUID(reflection_id),
-        suggested_action=SuggestedAction(type=action_type, **(action_payload or {})),
+        suggested_action=SuggestedAction(type=action_type, **ap),
     )
     payload = insight.model_dump(mode="json")
     payload["insight_id"] = payload.pop("id")
@@ -1031,6 +1033,8 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
         ] = None,
     ) -> dict[str, Any]:
         """Propose a grounded insight during a reflection run. Rejected if refs is empty."""
+        if not effective_settings.reflect_enabled:
+            return {"status": "disabled", "hint": "set EXOCORTEX_REFLECT_ENABLED=true"}
         return await _propose_insight(
             handlers.audit,
             kind=kind,
