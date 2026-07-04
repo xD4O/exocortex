@@ -6182,3 +6182,146 @@ button.tasks-lineage-step:hover {
     scroll-behavior: auto !important;
   }
 }
+
+/* =========================================================================
+   /reflect — insights (contradictions/patterns/gaps/syntheses) proposed by
+   the reflect subsystem, grouped by kind with accept/dismiss actions.
+   ========================================================================= */
+
+.reflect-resolved-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.reflect-layout {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 24px 60px;
+}
+
+.reflect-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.reflect-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reflect-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--accent-2);
+}
+.reflect-group-head .count {
+  color: var(--muted);
+}
+
+.reflect-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reflect-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  transition: border-color 160ms ease-out;
+}
+.reflect-card:hover {
+  border-color: rgba(88, 166, 255, 0.35);
+}
+.reflect-card.resolved {
+  opacity: 0.6;
+}
+
+.reflect-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.reflect-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.reflect-status.status-proposed { color: var(--accent-2); border-color: rgba(88, 166, 255, 0.4); }
+.reflect-status.status-accepted { color: var(--accent); border-color: rgba(126, 231, 135, 0.4); }
+.reflect-status.status-dismissed { color: var(--muted); }
+
+.reflect-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.reflect-card-body {
+  margin-top: 6px;
+}
+.reflect-detail {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.reflect-refs {
+  margin-top: 6px;
+  font-size: 11px;
+}
+.reflect-refs .k { color: var(--muted); }
+.reflect-refs .v { color: var(--text); }
+
+.reflect-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.reflect-action {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--accent-2);
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out;
+}
+.reflect-action:hover:not(:disabled) {
+  background: rgba(88, 166, 255, 0.18);
+  color: var(--text);
+  border-color: var(--accent-2);
+}
+.reflect-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.reflect-action.reflect-dismiss:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.14);
+  color: var(--danger);
+  border-color: var(--danger);
+}

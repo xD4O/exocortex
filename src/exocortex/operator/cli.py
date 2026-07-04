@@ -8,16 +8,20 @@ from uuid import UUID
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from exocortex.config import Settings
-from exocortex.contracts import EventKind, MemoryScope
+from exocortex.contracts import Event, EventKind, MemoryScope
 from exocortex.core.events import EventBus
 from exocortex.core.task_manager import TaskManager
 from exocortex.memory.durable import DurableMemoryStore
 from exocortex.memory.embedding import DeterministicEmbeddingProvider
+from exocortex.memory.reflect import ReflectionService, run_reflection
 from exocortex.memory.retrieval import HybridRetrieval
 from exocortex.observability.audit import AuditLog
+from exocortex.observability.humanize import humanize_event
 from exocortex.observability.logging import configure_logging
 from exocortex.operator.render import (
     render_event_line,
@@ -38,6 +42,11 @@ memory_app = typer.Typer(help="Browse and search the memory store.")
 app.add_typer(memory_app, name="memory")
 profile_app = typer.Typer(help="USER-scope memory: facts about the operator.")
 app.add_typer(profile_app, name="profile")
+insights_app = typer.Typer(
+    help="Review and act on reflection-proposed insights.",
+    invoke_without_command=True,
+)
+app.add_typer(insights_app, name="insights")
 
 console = Console()
 
@@ -459,6 +468,181 @@ def memory_promote(
             return
         applied = await apply_promotions(store, audit, candidates)
         console.print(f"\n[green]✓[/green] promoted {applied} record(s).")
+
+    asyncio.run(_run())
+
+
+# --- Reflect / Insights -----------------------------------------------------
+
+
+def _render_insight_line(item: dict[str, Any]) -> Text:
+    iid = str(item.get("insight_id", ""))
+    ev = Event(kind=EventKind.INSIGHT_PROPOSED, payload=item)
+    line = Text()
+    line.append(iid[:8], style="bold")
+    line.append(" ")
+    line.append(str(item.get("status", "?")), style="dim")
+    line.append("  ")
+    # humanize_event returns free text (e.g. "[gap] title") that may contain
+    # literal brackets — append as plain text, not markup, so it can't be
+    # misread as a (missing) rich style tag.
+    line.append(humanize_event(ev))
+    return line
+
+
+def _insights_list_impl() -> None:
+    async def _run() -> None:
+        _, audit = _setup()
+        svc = ReflectionService(audit=audit)
+        items = await svc.list_insights(include_resolved=False)
+        if not items:
+            console.print("[dim]No open insights.[/dim]")
+            return
+        for item in items:
+            console.print(_render_insight_line(item))
+
+    asyncio.run(_run())
+
+
+@insights_app.callback(invoke_without_command=True)
+def insights_main(ctx: typer.Context) -> None:
+    """List open insights, or use a subcommand (show/accept/dismiss)."""
+    if ctx.invoked_subcommand is None:
+        _insights_list_impl()
+
+
+@insights_app.command("list")
+def insights_list() -> None:
+    """List open (unresolved) insights."""
+    _insights_list_impl()
+
+
+@insights_app.command("show")
+def insights_show(
+    insight_id: Annotated[str, typer.Argument(help="Insight id (full UUID).")],
+) -> None:
+    """Show full detail for one insight (open or resolved)."""
+
+    async def _run() -> None:
+        _, audit = _setup()
+        svc = ReflectionService(audit=audit)
+        items = await svc.list_insights(include_resolved=True)
+        match = next((i for i in items if i.get("insight_id") == insight_id), None)
+        if match is None:
+            console.print(f"[yellow]No insight with id {insight_id}[/yellow]")
+            raise typer.Exit(code=1)
+        console.print(_render_insight_line(match))
+        console.print(f"  detail: {escape(str(match.get('detail', '')))}")
+        refs = match.get("refs") or []
+        console.print(f"  refs: {', '.join(str(r) for r in refs)}")
+        action = match.get("suggested_action")
+        if action:
+            console.print(f"  suggested_action: {escape(str(action))}")
+
+    asyncio.run(_run())
+
+
+@insights_app.command("accept")
+def insights_accept(
+    insight_id: Annotated[str, typer.Argument(help="Insight id (full UUID).")],
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply/--no-apply",
+            help="Actually perform the drafted action (default: just show it).",
+        ),
+    ] = False,
+) -> None:
+    """Accept an insight. Without --apply, only shows the drafted action."""
+
+    async def _run() -> None:
+        settings, audit = _setup()
+        svc = ReflectionService(audit=audit)
+        store = DurableMemoryStore(settings.memory_db_path) if apply else None
+        embedder = DeterministicEmbeddingProvider() if apply else None
+        try:
+            result = await svc.accept(
+                insight_id, apply=apply, store=store, embedder=embedder
+            )
+        except ValueError as e:
+            console.print(f"[red]error:[/red] {escape(str(e))}")
+            raise typer.Exit(code=1) from e
+        if apply:
+            console.print(f"[green]✓[/green] accepted + applied {insight_id[:8]}")
+            console.print(f"  {escape(str(result.get('acted')))}")
+        else:
+            console.print(f"[green]✓[/green] accepted {insight_id[:8]} (not applied)")
+            console.print(f"  drafted action: {escape(str(result.get('proposed_action')))}")
+
+    asyncio.run(_run())
+
+
+@insights_app.command("dismiss")
+def insights_dismiss(
+    insight_id: Annotated[str, typer.Argument(help="Insight id (full UUID).")],
+    note: Annotated[
+        str, typer.Option(help="Optional note explaining the dismissal.")
+    ] = "",
+) -> None:
+    """Dismiss an insight without acting on it."""
+
+    async def _run() -> None:
+        _, audit = _setup()
+        svc = ReflectionService(audit=audit)
+        await svc.dismiss(insight_id, note=note)
+        console.print(f"[dim]dismissed[/dim] {insight_id[:8]}")
+
+    asyncio.run(_run())
+
+
+@app.command()
+def reflect(
+    since: Annotated[
+        int | None,
+        typer.Option(
+            "--since",
+            help="Reflect over the last N days (overrides the default window).",
+        ),
+    ] = None,
+    all_history: Annotated[
+        bool, typer.Option("--all", help="Reflect over ALL memory, ignoring the window.")
+    ] = False,
+) -> None:
+    """Run one reflection pass: dispatch a reflective agent over recent memory.
+
+    The dispatched agent proposes insights via the insight_propose tool;
+    review them afterwards with `precog insights`.
+    """
+    from exocortex.operator.mcp.dispatch import DispatchService  # noqa: PLC0415
+
+    async def _run() -> None:
+        settings, audit = _setup()
+        if not settings.reflect_enabled:
+            console.print(
+                "[red]reflect is OFF[/red]. Enable with "
+                "[bold]EXOCORTEX_REFLECT_ENABLED=true[/bold]."
+            )
+            raise typer.Exit(code=1)
+        store = DurableMemoryStore(settings.memory_db_path)
+        dispatcher = DispatchService(settings=settings)
+        result = await run_reflection(
+            audit=audit,
+            store=store,
+            settings=settings,
+            dispatch=dispatcher.dispatch,
+            since_days=since,
+            all_history=all_history,
+        )
+        status = result.get("status", "?")
+        color = "green" if status == "completed" else "red"
+        console.print(
+            f"[{color}]{status}[/{color}] · {result.get('insight_count', 0)} insight(s) "
+            f"(reflection {str(result.get('reflection_id', ''))[:8]})"
+        )
+        if result.get("dispatched_to"):
+            console.print(f"  dispatched to: {escape(str(result['dispatched_to']))}")
+        if result.get("error"):
+            console.print(f"  error: {escape(str(result['error']))}")
 
     asyncio.run(_run())
 

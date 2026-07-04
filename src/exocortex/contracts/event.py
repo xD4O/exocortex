@@ -27,6 +27,12 @@ class EventKind(StrEnum):
     MEMORY_CHAT = "memory.chat"
     MEMORY_PROMOTED = "memory.promoted"
 
+    REFLECTION_STARTED = "reflection.started"
+    REFLECTION_COMPLETED = "reflection.completed"
+    INSIGHT_PROPOSED = "insight.proposed"
+    INSIGHT_ACCEPTED = "insight.accepted"
+    INSIGHT_DISMISSED = "insight.dismissed"
+
     # User-profile lifecycle (USER-scope records)
     PROFILE_OBSERVED = "profile.observed"
     PROFILE_REDACTED = "profile.redacted"

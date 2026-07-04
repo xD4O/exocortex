@@ -81,6 +81,14 @@ _FORMATTERS: dict[EventKind, Any] = {
     f"{p.get('to_agent', '?')}] {_short(p.get('content') or '', 80)}",
     EventKind.CONVERSATION_CLOSED: lambda p: "conversation closed",
     EventKind.CONVERSATION_DELETED: lambda p: "conversation deleted",
+    EventKind.REFLECTION_STARTED: lambda p: "reflection started",
+    EventKind.REFLECTION_COMPLETED: lambda p: f"reflection {p.get('status', '?')} "
+    f"({p.get('insight_count', 0)} insights)",
+    EventKind.INSIGHT_PROPOSED: lambda p: f"[{p.get('kind', '?')}] "
+    + _short(p.get("title") or "", 80),
+    EventKind.INSIGHT_ACCEPTED: lambda p: "insight accepted"
+    + (" + applied" if (p.get("acted") or {}).get("superseded_by") else ""),
+    EventKind.INSIGHT_DISMISSED: lambda p: "insight dismissed",
 }
 
 

@@ -1030,3 +1030,38 @@ def test_guard_token_required_when_configured(
         assert ok.status_code == 200
         viaquery = client.get("/api/status?token=s3cret")
         assert viaquery.status_code == 200
+
+
+def test_insights_api(web_env: tuple[Path, Path]) -> None:
+    audit_path, _ = web_env
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    iid = str(uuid4())
+
+    async def _seed() -> None:
+        await AuditLog(audit_path).record(
+            Event(
+                kind=EventKind.INSIGHT_PROPOSED,
+                payload={
+                    "insight_id": iid,
+                    "kind": "synthesis",
+                    "title": "weekly recap",
+                    "detail": "d",
+                    "refs": [str(uuid4())],
+                },
+            )
+        )
+
+    asyncio.run(_seed())
+    with _client(web_env) as client:
+        r = client.get("/api/insights")
+        assert r.status_code == 200
+        assert any(i["insight_id"] == iid for i in r.json()["items"])
+        d = client.post(f"/api/insights/{iid}/dismiss", json={})
+        assert d.status_code == 200
+        assert client.get("/api/insights").json()["items"] == []
+
+
+def test_reflect_page_serves(web_env: tuple[Path, Path]) -> None:
+    with _client(web_env) as client:
+        r = client.get("/reflect")
+        assert r.status_code == 200

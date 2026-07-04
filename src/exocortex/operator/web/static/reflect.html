@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exocortex — reflect</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="brand"><span class="glyph">[*]</span>Exocortex</div>
+      <nav>
+        <a href="/">dashboard</a>
+        <a href="/memory">constellation</a>
+        <a href="/tasks">tasks</a>
+        <a href="/static/agents.html">agents</a>
+        <a href="/chat">chat</a>
+        <a href="/static/conversations.html">conversations</a>
+        <a href="/static/profile.html">profile</a>
+        <a href="/static/debug.html">debug</a>
+        <a href="/reflect" class="active">reflect</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="status-strip">
+        <span class="kpi"><span class="num" id="kpi-insights">0</span>open insights</span>
+      </div>
+      <label class="reflect-resolved-toggle mono">
+        <input type="checkbox" id="reflect-show-resolved" />
+        show resolved
+      </label>
+    </div>
+  </header>
+
+  <main class="reflect-layout" id="reflect-layout">
+    <div class="reflect-groups" id="reflect-groups">
+      <div class="reflect-empty">loading…</div>
+    </div>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/reflect.js"></script>
+</body>
+</html>

@@ -22,11 +22,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from exocortex.config import Settings
+from exocortex.contracts import Event, EventKind
+from exocortex.contracts.insight import Insight, InsightKind, SuggestedAction
 from exocortex.memory.durable import DurableMemoryStore
 from exocortex.memory.embedding import DeterministicEmbeddingProvider
 from exocortex.memory.retrieval import HybridRetrieval
@@ -159,6 +162,48 @@ async def _safe_dispatch(
         )
     except DispatchError as e:
         return {"status": "failed", "error": str(e), "goal": goal}
+
+
+async def _propose_insight(
+    audit: AuditLog,
+    *,
+    kind: str,
+    title: str,
+    detail: str,
+    refs: list[str],
+    reflection_id: str,
+    action_type: str = "none",
+    action_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Construct a grounded `Insight`, emit `INSIGHT_PROPOSED`, return its id.
+
+    Grounding is mandatory: an insight that cites zero memory records is
+    unfalsifiable noise, so empty `refs` is rejected here with a clean
+    `ValueError` — before Insight construction — rather than surfacing a
+    raw pydantic `ValidationError` to the calling agent.
+
+    Confidence is intentionally NOT a parameter: tool-created insights are
+    always `confidence=inferred` (Insight's default). Locking this out
+    keeps "asserted"/"external_claim" insights from being self-issued by
+    an agent calling this tool.
+    """
+    if not refs:
+        raise ValueError("insight requires >=1 grounding refs")
+    ap = dict(action_payload or {})
+    ap.pop("type", None)
+    insight = Insight(
+        kind=InsightKind(kind),
+        title=title,
+        detail=detail,
+        refs=[UUID(r) for r in refs],
+        reflection_id=UUID(reflection_id),
+        suggested_action=SuggestedAction(type=action_type, **ap),
+    )
+    payload = insight.model_dump(mode="json")
+    payload["insight_id"] = payload.pop("id")
+    await audit.record(Event(kind=EventKind.INSIGHT_PROPOSED, actor="reflect",
+                             reason=title, payload=payload))
+    return {"insight_id": payload["insight_id"]}
 
 
 def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0915
@@ -962,6 +1007,64 @@ def build_mcp_server(settings: Settings | None = None) -> FastMCP:  # noqa: PLR0
             "stdout": result.get("stdout", ""),
             "stderr": result.get("stderr", ""),
         }
+
+    @mcp.tool()
+    async def insight_propose(
+        kind: Annotated[
+            Literal["contradiction", "pattern", "gap", "synthesis"],
+            Field(description="Insight type."),
+        ],
+        title: Annotated[str, Field(description="One-line summary.")],
+        detail: Annotated[str, Field(description="The reasoning.")],
+        refs: Annotated[
+            list[str],
+            Field(description="Memory record UUIDs this is grounded in. REQUIRED."),
+        ],
+        reflection_id: Annotated[
+            str, Field(description="The current reflection run id (from your goal).")
+        ],
+        action_type: Annotated[
+            Literal["supersede", "create_rule", "track_gap", "record_decision", "none"],
+            Field(description="Optional suggested action type."),
+        ] = "none",
+        action_payload: Annotated[
+            dict[str, Any] | None,
+            Field(description="Fields for the action (e.g. {'stale_record_id': ...})."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Propose a grounded insight during a reflection run. Rejected if refs is empty."""
+        if not effective_settings.reflect_enabled:
+            return {"status": "disabled", "hint": "set EXOCORTEX_REFLECT_ENABLED=true"}
+        return await _propose_insight(
+            handlers.audit,
+            kind=kind,
+            title=title,
+            detail=detail,
+            refs=refs,
+            reflection_id=reflection_id,
+            action_type=action_type,
+            action_payload=action_payload,
+        )
+
+    @mcp.tool()
+    async def reflect(
+        since_days: Annotated[
+            int | None,
+            Field(description="Reflect over the last N days (overrides the default window)."),
+        ] = None,
+        all_history: Annotated[
+            bool, Field(description="Reflect over ALL memory.")
+        ] = False,
+    ) -> dict[str, Any]:
+        """Run one reflection pass: dispatch a reflective agent over recent memory;
+        it proposes insights."""
+        if not effective_settings.reflect_enabled:
+            return {"status": "disabled", "hint": "set EXOCORTEX_REFLECT_ENABLED=true"}
+        from exocortex.memory.reflect import run_reflection  # noqa: PLC0415
+        return await run_reflection(audit=handlers.audit, store=handlers.store,
+                                    settings=effective_settings,
+                                    dispatch=dispatcher.dispatch,
+                                    since_days=since_days, all_history=all_history)
 
     return mcp
 

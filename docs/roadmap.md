@@ -110,7 +110,7 @@ tier, pick by which constraint you feel most.
 ## Tier 3 — bigger bets; high value but bigger commitment
 
 ### Self-improvement loop
-- [ ] **Reflective agent (nightly).** Scheduled background dispatch. Reads recent memory, identifies patterns / contradictions / gaps, writes meta-observations. Effectively a junior research assistant for your past self. **L.**
+- [x] **Reflective agent (nightly).** Shipped. Reflective dispatch over configurable memory window proposes typed Insights (contradiction/pattern/gap/synthesis) into a reviewable queue; accept/dismiss + two-step apply (suggest action, then confirm). Surfaced in `session_startup`, `/reflect` page, and CLI. **L.**
 - [ ] **Continual learning loop.** Evaluator agent scores past dispatch quality (did the answer actually solve the operator's problem?). Future dispatches start with relevant lessons learned in their context. **L.**
 - [ ] **Constitutional review.** Agent that reviews memory writes against project values (declarative `~/.exocortex/principles.yaml`). Flags drift. **M-L.**
 
