@@ -31,6 +31,16 @@ The trust boundary is a **trusted operator on a local machine**. The threat
 model is "an agent makes a mistake," not a malicious agent or a hostile
 multi-tenant environment.
 
+> **Security note.** Even within that model, the shared memory is an
+> instruction channel: anything an agent reads via `memory_search` arrives as
+> tool output, so a mistaken (or poisoned) record can carry injected
+> instructions to every agent that recalls it. v0.2.0 routes `shell_exec` /
+> `fs_*` through the policy engine (sandbox root + secret denylist + audit), so
+> a bad tool call is confined and logged. Treat memory content as data, not
+> instructions. Hardening beyond this is scoped in
+> `docs/superpowers/specs/2026-07-04-injection-hardening-design.md` and the
+> roadmap's Trust + governance section.
+
 ## Quick install
 
 One-line install (requires `git` + a working shell):
