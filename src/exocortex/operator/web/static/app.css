@@ -6159,22 +6159,14 @@ button.tasks-lineage-step:hover {
    Keyboard focus was invisible everywhere: 13 `outline:0/none` sites and
    no `:focus-visible` rule. Restore a clear ring for keyboard users while
    leaving mouse users unaffected (`:focus-visible` only shows for keyboard
-   focus). Higher specificity than the element-level `outline:0`, so order
-   doesn't matter. */
+   focus). `!important` is required because several existing rules suppress
+   the outline with a class+pseudo selector (e.g. `.pq-textarea:focus`) that
+   outspecifies an element-level `:focus-visible` — verified live that without
+   it the ring never rendered on those inputs. */
 :focus-visible {
-  outline: 2px solid #58a6ff;
-  outline-offset: 2px;
+  outline: 2px solid #58a6ff !important;
+  outline-offset: 2px !important;
   border-radius: 3px;
-}
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-[role="button"]:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid #58a6ff;
-  outline-offset: 2px;
 }
 
 /* Respect a system "reduce motion" preference for ALL CSS animation +
