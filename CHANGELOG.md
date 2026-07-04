@@ -7,6 +7,17 @@ and this project follows semantic versioning at the contract layer (every
 contract carries a `schema_version`; additive-only changes within a major
 version).
 
+## [Unreleased] — Reflect
+
+A reflective agent subsystem that observes recent memory and proposes typed,
+grounded Insights — contradiction, pattern, gap, synthesis — into a reviewable
+queue. Operator accepts/dismisses insights; accepted insights draft a
+suggested action (rule, gap statement, decision) for confirmation before
+applying. Surfaced in `session_startup` (as `pending_insights`), CLI
+(`precog reflect` / `precog insights`), and web (`/reflect` page). Gated by
+`EXOCORTEX_REFLECT_ENABLED=false` (default off). MCP tools: `insight_propose`,
+`reflect`. See `docs/reflect.md` for full design.
+
 ## [0.2.0] — 2026-07-03
 
 The v0.2 hardening batch. Closes the gap between the platform's advertised

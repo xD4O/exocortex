@@ -6,7 +6,7 @@ hand tasks off to one another.
 
 > **Status:** v0.1 — first public release. Core platform shipped: contracts,
 > task/session runtime, memory, policy-gated tools, Codex + Hermes bridges,
-> coordination layer, MCP server (31 tools), and a 7-page web UI. Claude Code's
+> coordination layer, MCP server (33 tools), and an 8-page web UI. Claude Code's
 > real-binary integration is tracked, blocked on a headless `claude exec` mode.
 
 ## Why
@@ -66,7 +66,7 @@ uv run precog daemon stop           # shut it down
 
 ### A web UI on `:8756`
 
-Seven pages, all served by `precog daemon start`:
+Eight pages, all served by `precog daemon start`:
 
 | Page | What it shows |
 |---|---|
@@ -77,6 +77,7 @@ Seven pages, all served by `precog daemon start`:
 | `/profile` | Operator profile (USER-scope memory) + question queue. |
 | `/conversations` | Multi-agent conversations with chat-bubble transcripts and run-N-rounds. |
 | `/debug` | Failure triage with hint side-panel. |
+| `/reflect` | Reflective agent: proposed insights with kind filters, accept/dismiss queue, suggested actions, apply + confirm. |
 
 ### A 31-tool MCP server
 
@@ -109,6 +110,8 @@ precog memory promote --apply          # >=3 agents corroborate -> asserted
 precog recall [--agent X]              # "here's what we were working on"
 precog chat-toggle [on|off|status]     # master switch for memory chat
 precog chat "<question>"               # one-shot RAG query
+precog reflect [--agent X]             # run reflective agent over memory window
+precog insights show / dismiss / apply # review + act on proposed insights
 precog profile show / question / answer
 precog daemon start / status / stop    # long-running web + MCP host
 precog mcp-server                      # stdio MCP server
