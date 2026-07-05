@@ -10,18 +10,11 @@
 (function () {
   "use strict";
 
+  const { el, escapeHtml, truncate, fmtRelative, agentColor } = window.Exo;
+
   // -------------------------------------------------------------------
   // Constants
   // -------------------------------------------------------------------
-
-  const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-  };
-  const FALLBACK_AGENT_COLOR = "#8b949e";
 
   const KIND_GLYPH = {
     "memory.written": "M",
@@ -72,34 +65,6 @@
   // Helpers
   // -------------------------------------------------------------------
 
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k in attrs) {
-        if (k === "class") node.className = attrs[k];
-        else if (k === "text") node.textContent = attrs[k];
-        else if (k === "html") node.innerHTML = attrs[k];
-        else if (k === "style") {
-          for (const sk in attrs[k]) node.style[sk] = attrs[k][sk];
-        }
-        else if (k.startsWith("on")) node.addEventListener(k.slice(2), attrs[k]);
-        else node.setAttribute(k, attrs[k]);
-      }
-    }
-    if (children) {
-      for (const c of children) {
-        if (c == null) continue;
-        node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-      }
-    }
-    return node;
-  }
-
-  function agentColor(id) {
-    if (!id) return FALLBACK_AGENT_COLOR;
-    return AGENT_COLORS[id] || FALLBACK_AGENT_COLOR;
-  }
-
   function kindGlyph(k) { return KIND_GLYPH[k] || "·"; }
 
   function fmtTimeFromMs(ms) {
@@ -123,31 +88,12 @@
     } catch (_) { return "—"; }
   }
 
-  function fmtRelative(ms) {
-    if (!ms) return "—";
-    const diff = Date.now() - ms;
-    if (diff < 0) return "just now";
-    if (diff < 60_000) return Math.max(1, Math.floor(diff / 1000)) + "s ago";
-    if (diff < 3_600_000) return Math.floor(diff / 60_000) + "m ago";
-    if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + "h ago";
-    return Math.floor(diff / 86_400_000) + "d ago";
-  }
-
-  function truncate(s, n) {
-    if (s == null) return "";
-    s = String(s);
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
-  }
-
   function dayKey(ms) {
     const d = new Date(ms);
     return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
   }
 
   // Tiny JSON syntax highlighter (no deps). Returns escaped HTML.
-  function escapeHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
   function highlightJson(obj) {
     let s;
     try { s = JSON.stringify(obj, null, 2); } catch (_) { s = String(obj); }

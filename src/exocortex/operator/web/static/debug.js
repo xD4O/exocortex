@@ -14,38 +14,13 @@
 (function () {
   "use strict";
 
+  const { el, truncate } = window.Exo;
+
   // -----------------------------------------------------------------
   // Tiny DOM helpers
   // -----------------------------------------------------------------
 
   const $ = (id) => document.getElementById(id);
-
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k of Object.keys(attrs)) {
-        const v = attrs[k];
-        if (v == null) continue;
-        if (k === "class") node.className = v;
-        else if (k === "text") node.textContent = v;
-        else if (k === "html") node.innerHTML = v;
-        else if (k === "style" && typeof v === "object") {
-          for (const s of Object.keys(v)) node.style[s] = v[s];
-        } else if (k.startsWith("on") && typeof v === "function") {
-          node.addEventListener(k.slice(2).toLowerCase(), v);
-        } else {
-          node.setAttribute(k, String(v));
-        }
-      }
-    }
-    if (Array.isArray(children)) {
-      for (const c of children) {
-        if (c == null) continue;
-        node.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
-      }
-    }
-    return node;
-  }
 
   // -----------------------------------------------------------------
   // State + persistence
@@ -119,12 +94,6 @@
     if (h < 24) return `${h}h ago`;
     const d = Math.floor(h / 24);
     return `${d}d ago`;
-  }
-
-  function truncate(s, n) {
-    if (!s) return "";
-    if (s.length <= n) return s;
-    return s.slice(0, n - 1) + "…";
   }
 
   function severityFor(f) {

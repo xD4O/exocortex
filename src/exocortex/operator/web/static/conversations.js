@@ -13,19 +13,11 @@
 (function () {
   "use strict";
 
+  const { el, truncate, fmtRelative, agentColor } = window.Exo;
+
   // -------------------------------------------------------------------
   // Constants
   // -------------------------------------------------------------------
-
-  const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-  };
-  const FALLBACK_AGENT_COLOR = "#8b949e";
-  const OPERATOR_COLOR = "#8b9bab";
 
   const LS_KEY = "exocortex.conversations.v1";
   const WS_DEBOUNCE_MS = 400;
@@ -35,38 +27,7 @@
   // Helpers
   // -------------------------------------------------------------------
 
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k in attrs) {
-        if (k === "class") node.className = attrs[k];
-        else if (k === "text") node.textContent = attrs[k];
-        else if (k === "html") node.innerHTML = attrs[k];
-        else if (k === "style") {
-          for (const sk in attrs[k]) node.style[sk] = attrs[k][sk];
-        } else if (k.startsWith("on")) {
-          node.addEventListener(k.slice(2), attrs[k]);
-        } else {
-          node.setAttribute(k, attrs[k]);
-        }
-      }
-    }
-    if (children) {
-      for (const c of children) {
-        if (c == null) continue;
-        node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-      }
-    }
-    return node;
-  }
-
   function $(id) { return document.getElementById(id); }
-
-  function agentColor(id) {
-    if (!id) return FALLBACK_AGENT_COLOR;
-    if (id === "operator") return OPERATOR_COLOR;
-    return AGENT_COLORS[id] || FALLBACK_AGENT_COLOR;
-  }
 
   function fmtTimeFromMs(ms) {
     try {
@@ -76,22 +37,6 @@
       const ss = String(d.getSeconds()).padStart(2, "0");
       return `${hh}:${mm}:${ss}`;
     } catch (_) { return "--:--:--"; }
-  }
-
-  function fmtRelative(ms) {
-    if (!ms) return "—";
-    const diff = Date.now() - ms;
-    if (diff < 0) return "just now";
-    if (diff < 60_000) return Math.max(1, Math.floor(diff / 1000)) + "s ago";
-    if (diff < 3_600_000) return Math.floor(diff / 60_000) + "m ago";
-    if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + "h ago";
-    return Math.floor(diff / 86_400_000) + "d ago";
-  }
-
-  function truncate(s, n) {
-    if (s == null) return "";
-    s = String(s);
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
   }
 
   function toMs(v) {
