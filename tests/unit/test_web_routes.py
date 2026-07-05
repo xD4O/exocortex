@@ -972,9 +972,19 @@ def test_profile_gaps_returns_dimensions(web_env: tuple[Path, Path]) -> None:
 
 def test_static_css_served(web_env: tuple[Path, Path]) -> None:
     with _client(web_env) as client:
-        r = client.get("/static/app.css")
+        r = client.get("/static/exo.css")
         assert r.status_code == 200
         assert "--bg" in r.text
+
+
+def test_spa_shell_served_on_every_page_route(web_env: tuple[Path, Path]) -> None:
+    """UI v3 is a single-page app — every page route serves the same shell."""
+    with _client(web_env) as client:
+        for path in ("/", "/memory", "/tasks", "/agents", "/conversations",
+                     "/chat", "/profile", "/reflect", "/settings", "/debug"):
+            r = client.get(path)
+            assert r.status_code == 200, path
+            assert "exo-app.js" in r.text, path
 
 
 # --- A2: local-trust guard (CSRF + cross-site WS hijack) --------------------
