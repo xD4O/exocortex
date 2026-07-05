@@ -388,7 +388,7 @@
     // story (dispatch from_agent, memory record ids, tool argv...).
     const out = [];
     const seenTask = new Set(), seenEv = new Set();
-    for (const t of (chain.tasks || []).slice(0, 4)) {
+    for (const t of (chain.tasks || []).slice(0, 8)) {
       if (seenTask.has(t.task_id)) continue;
       seenTask.add(t.task_id);
       try {
@@ -487,22 +487,28 @@
     lanes.style.position = "relative";
     const segs = [];
     const handoffs = [];
-    let holder = dispatcher, heldSince = t0;
+    // custody is a STACK: nested dispatches (A→B→C) return to the previous
+    // holder when a session closes, not to the root dispatcher.
+    const stack = [dispatcher];
+    let heldSince = t0;
     for (const e of evs) {
       const t = e.timestamp_ms || t0;
-      if (e.kind === "session.opened" && e.agent_id && e.agent_id !== holder) {
-        segs.push({ agent: holder, s: heldSince, e: t });
+      const top = stack[stack.length - 1];
+      if (e.kind === "session.opened" && e.agent_id && e.agent_id !== top) {
+        segs.push({ agent: top, s: heldSince, e: t });
         handoffs.push({ t, to: e.agent_id });
-        holder = e.agent_id; heldSince = t;
-      } else if (e.kind === "session.closed" && e.agent_id === holder && holder !== dispatcher) {
-        segs.push({ agent: holder, s: heldSince, e: t });
-        handoffs.push({ t, to: dispatcher });
-        holder = dispatcher; heldSince = t;
+        stack.push(e.agent_id); heldSince = t;
+      } else if (e.kind === "session.closed" && e.agent_id === top && stack.length > 1) {
+        segs.push({ agent: top, s: heldSince, e: t });
+        stack.pop();
+        handoffs.push({ t, to: stack[stack.length - 1] });
+        heldSince = t;
       }
     }
-    segs.push({ agent: holder, s: heldSince, e: t1 });
+    segs.push({ agent: stack[stack.length - 1], s: heldSince, e: t1 });
 
     for (const seg of segs) {
+      if (seg.label) continue;
       const inside = evs.filter((e) => {
         const t = e.timestamp_ms || t0;
         return laneOf(e) === seg.agent && t >= seg.s - 500 && t <= seg.e + 500 && !SKIP_KINDS.has(e.kind);
@@ -516,6 +522,21 @@
       }
       seg.label = counts.map((c) => c.k + (c.n > 1 ? " \u00d7" + c.n : "")).join(" \u00b7 ")
         || (seg.agent === dispatcher ? "waiting" : "working");
+    }
+
+    // every task logged in the chain must appear: if a task's window has no
+    // custody segment on its agent's lane (trace missing / session events
+    // absent), draw a fallback block straight from the task log.
+    for (const t of chain.tasks || []) {
+      const a = t.agent_id;
+      if (!a) continue;
+      const ts = Date.parse(t.started_at) || t0;
+      const te = Date.parse(t.ended_at) || t1;
+      const covered = segs.some((sg) => sg.agent === a && sg.s < te && sg.e > ts);
+      if (!covered) {
+        segs.push({ agent: a, s: ts, e: te, label: (t.status || "task") + " \u00b7 from task log" });
+      }
+      if (!displayPath.includes(a)) displayPath.push(a);
     }
 
     for (const a of displayPath) {
