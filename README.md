@@ -79,7 +79,7 @@ Eight pages, all served by `precog daemon start`:
 | `/debug` | Failure triage with hint side-panel. |
 | `/reflect` | Reflective agent: proposed insights with kind filters, accept/dismiss queue, suggested actions, apply + confirm. |
 
-### A 31-tool MCP server
+### A 33-tool MCP server
 
 `precog mcp-server` is a stdio MCP server that any compatible agent (Hermes,
 Codex, Claude Code) can attach to. Tools cover memory, dispatch, profile,
