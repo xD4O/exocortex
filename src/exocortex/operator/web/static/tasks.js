@@ -944,6 +944,13 @@ async function openPanel(id) {
     scrim.classList.add("open");
     scrim.setAttribute("aria-hidden", "false");
   }
+  // Accessible dialog: focus in + Tab-trap + Esc + restore focus on close.
+  if (window.Exo && Exo.openDialog) {
+    state._dlgClose = Exo.openDialog(panel, {
+      labelledBy: "tasks-panel-title",
+      onClose: hidePanel,
+    });
+  }
 
   const t = state.tasks.get(id);
   if (!t) {
@@ -1080,7 +1087,7 @@ function panelSection(label, ...children) {
   return sec;
 }
 
-function closePanel() {
+function hidePanel() {
   const panel = $("tasks-panel");
   const scrim = $("tasks-panel-scrim");
   if (!panel) return;
@@ -1093,6 +1100,18 @@ function closePanel() {
   state.selectedTaskId = null;
   persist();
   applySelectionClass();
+}
+
+function closePanel() {
+  // Route through the accessible-dialog closer (restores focus); fall back to
+  // a plain hide if the dialog helper wasn't active.
+  if (state._dlgClose) {
+    const c = state._dlgClose;
+    state._dlgClose = null;
+    c();
+    return;
+  }
+  hidePanel();
 }
 
 // ---------------------------------------------------------------------------

@@ -64,7 +64,9 @@
         if (k === "class") node.className = v;
         else if (k === "text") node.textContent = v;
         else if (k === "html") node.innerHTML = v;
-        else if (k.slice(0, 2) === "on" && typeof v === "function") {
+        else if (k === "style" && typeof v === "object") {
+          for (const sk of Object.keys(v)) node.style[sk] = v[sk];
+        } else if (k.slice(0, 2) === "on" && typeof v === "function") {
           node.addEventListener(k.slice(2).toLowerCase(), v);
         } else node.setAttribute(k, v);
       }
@@ -137,6 +139,82 @@
     };
   }
 
+  // Accessible modal panel (slide-in side panels / overlay drawers). Sets
+  // dialog semantics, moves focus into the panel, traps Tab within it, closes
+  // on Escape, and restores focus to the trigger on close. Returns a close()
+  // function the caller invokes from its own close paths (close button, etc.).
+  function openDialog(panel, opts) {
+    opts = opts || {};
+    const trigger = document.activeElement;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    if (opts.label) panel.setAttribute("aria-label", opts.label);
+    if (opts.labelledBy) panel.setAttribute("aria-labelledby", opts.labelledBy);
+
+    function focusables() {
+      const sel =
+        'a[href], button:not([disabled]), textarea:not([disabled]), ' +
+        'input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      return Array.prototype.slice
+        .call(panel.querySelectorAll(sel))
+        .filter((n) => n.offsetParent !== null || n === document.activeElement);
+    }
+
+    const first = focusables()[0];
+    if (first) {
+      first.focus();
+    } else {
+      panel.setAttribute("tabindex", "-1");
+      panel.focus();
+    }
+
+    let closed = false;
+    function onKey(e) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const f = focusables();
+      if (f.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const a = f[0];
+      const z = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === a) {
+        e.preventDefault();
+        z.focus();
+      } else if (!e.shiftKey && document.activeElement === z) {
+        e.preventDefault();
+        a.focus();
+      }
+    }
+    panel.addEventListener("keydown", onKey);
+
+    function close() {
+      if (closed) return;
+      closed = true;
+      panel.removeEventListener("keydown", onKey);
+      if (opts.onClose) {
+        try {
+          opts.onClose();
+        } catch (_) {
+          /* caller close is best-effort */
+        }
+      }
+      if (
+        trigger &&
+        typeof trigger.focus === "function" &&
+        document.contains(trigger)
+      ) {
+        trigger.focus();
+      }
+    }
+    return close;
+  }
+
   global.Exo = {
     AGENT_COLORS,
     FALLBACK_AGENT_COLOR,
@@ -147,5 +225,6 @@
     el,
     fetchJSON,
     connectWs,
+    openDialog,
   };
 })(window);

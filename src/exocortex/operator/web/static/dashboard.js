@@ -1093,6 +1093,13 @@
     if (drawer) {
       drawer.classList.add("open");
       drawer.setAttribute("aria-hidden", "false");
+      // Accessible dialog: focus in + Tab-trap + Esc + restore focus on close.
+      if (window.Exo && Exo.openDialog) {
+        state._dlgClose = Exo.openDialog(drawer, {
+          label: "handoff chain detail",
+          onClose: hideChainDrawer,
+        });
+      }
     }
 
     if (chain) {
@@ -1108,7 +1115,7 @@
     }
   }
 
-  function closeChainDrawer() {
+  function hideChainDrawer() {
     state.drawerOpen = false;
     state.drawerChainId = null;
     const drawer = $("chain-drawer");
@@ -1116,6 +1123,18 @@
       drawer.classList.remove("open");
       drawer.setAttribute("aria-hidden", "true");
     }
+  }
+
+  function closeChainDrawer() {
+    // Route through the accessible-dialog closer (restores focus); fall back to
+    // a plain hide if the dialog helper wasn't active.
+    if (state._dlgClose) {
+      const c = state._dlgClose;
+      state._dlgClose = null;
+      c();
+      return;
+    }
+    hideChainDrawer();
   }
 
   function renderDrawer(chain) {

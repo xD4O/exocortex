@@ -413,6 +413,13 @@
     if (title) title.textContent = (f.kind || "failure") + " · " + truncate(f.event_id, 8);
     panel.classList.add("open");
     panel.setAttribute("aria-hidden", "false");
+    // Accessible dialog: focus in + Tab-trap + Esc + restore focus on close.
+    if (window.Exo && Exo.openDialog) {
+      state._dlgClose = Exo.openDialog(panel, {
+        labelledBy: "dbg-panel-title",
+        onClose: hidePanel,
+      });
+    }
 
     // Mark the active row + de-mark previous.
     document.querySelectorAll(".dbg2-row.active").forEach((r) => r.classList.remove("active"));
@@ -514,13 +521,25 @@
     }
   }
 
-  function closePanel() {
+  function hidePanel() {
     const panel = $("dbg-panel");
     if (!panel) return;
     panel.classList.remove("open");
     panel.setAttribute("aria-hidden", "true");
     state.selectedEventId = null;
     document.querySelectorAll(".dbg2-row.active").forEach((r) => r.classList.remove("active"));
+  }
+
+  function closePanel() {
+    // Route through the accessible-dialog closer (restores focus to the row);
+    // fall back to a plain hide if the dialog helper wasn't active.
+    if (state._dlgClose) {
+      const c = state._dlgClose;
+      state._dlgClose = null;
+      c();
+      return;
+    }
+    hidePanel();
   }
 
   // -----------------------------------------------------------------

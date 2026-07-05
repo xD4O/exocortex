@@ -463,10 +463,21 @@
     const row = el("div", {
       class: "ev-row" + (state.expandedEventId === ev.event_id ? " expanded" : ""),
       "data-event-id": ev.event_id,
+      // Disclosure semantics: keyboard-operable button controlling the drawer.
+      role: "button",
+      tabindex: "0",
+      "aria-expanded": state.expandedEventId === ev.event_id ? "true" : "false",
+      "aria-controls": "why-" + ev.event_id,
       onclick: (e) => {
         // Don't trigger drawer when clicking a badge
         if (e.target && e.target.classList && e.target.classList.contains("badge")) return;
         toggleDrawer(ev, row);
+      },
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleDrawer(ev, row);
+        }
       },
     }, [
       el("div", { class: "gutter" }, [
@@ -517,8 +528,13 @@
     state.expandedEventId = ev.event_id;
     state.expandedRowEl = rowEl;
     rowEl.classList.add("expanded");
+    rowEl.setAttribute("aria-expanded", "true");
 
-    const drawer = el("div", { class: "why-drawer", "data-for": ev.event_id }, [
+    const drawer = el("div", {
+      class: "why-drawer", "data-for": ev.event_id,
+      id: "why-" + ev.event_id, role: "region",
+      "aria-label": "Event detail", tabindex: "-1",
+    }, [
       el("h4", { text: "Event payload" }),
       buildJsonBlock(ev),
       el("h4", { text: "What came before in this task/session" }),
@@ -528,6 +544,7 @@
     ]);
     state.drawerEl = drawer;
     rowEl.parentNode.insertBefore(drawer, rowEl.nextSibling);
+    drawer.focus();  // move focus into the opened region
 
     const ctx = await fetchContext(state.selectedAgentId, ev.event_id);
     if (state.expandedEventId !== ev.event_id) return; // closed during fetch
@@ -610,19 +627,25 @@
   }
 
   function closeDrawer() {
+    const row = state.expandedRowEl;
     if (state.drawerEl && state.drawerEl.parentNode) {
       state.drawerEl.parentNode.removeChild(state.drawerEl);
     }
-    if (state.expandedRowEl) {
-      state.expandedRowEl.classList.remove("expanded");
+    if (row) {
+      row.classList.remove("expanded");
+      row.setAttribute("aria-expanded", "false");
     }
     state.drawerEl = null;
     state.expandedEventId = null;
     state.expandedRowEl = null;
     // Catch up on any live events deferred while the drawer was open (D3).
+    // If we rebuild, the row node is replaced — don't restore focus to a
+    // detached node; otherwise return focus to the row the drawer belonged to.
     if (state.pendingLiveRefresh) {
       state.pendingLiveRefresh = false;
       renderTimeline();
+    } else if (row && typeof row.focus === "function") {
+      row.focus();
     }
   }
 
