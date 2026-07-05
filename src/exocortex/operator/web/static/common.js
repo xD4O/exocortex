@@ -14,16 +14,32 @@
   // every page. Unknown agents share one deliberate neutral (never a per-page
   // accident).
   const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-    operator: "#8b9bab",
+    codex: "#DE4A64",
+    hermes: "#0FA093",
+    claude: "#8A66EC",
+    claude_code: "#8A66EC",
+    openclaw: "#3E8FD8",
+    operator: "#8593A9",
   };
   const FALLBACK_AGENT_COLOR = "#8b949e";
+  // canonical id -> CSS token (themes retune the exact shade per surface)
+  const AGENT_TOKEN = {
+    codex: "--ag-codex",
+    hermes: "--ag-hermes",
+    claude: "--ag-claude",
+    claude_code: "--ag-claude",
+    openclaw: "--ag-openclaw",
+    operator: "--ag-operator",
+  };
 
   function agentColor(id) {
+    const token = id && AGENT_TOKEN[id];
+    if (token) {
+      const v = getComputedStyle(document.documentElement)
+        .getPropertyValue(token)
+        .trim();
+      if (v) return v;
+    }
     return (id && AGENT_COLORS[id]) || FALLBACK_AGENT_COLOR;
   }
 
@@ -215,6 +231,56 @@
     return close;
   }
 
+  // ---- UI v2: theme persistence -------------------------------------
+  // data-theme on <html> wins over the OS preference; "auto" removes it.
+  // Each page also inlines a tiny boot script in <head> so the attribute
+  // is set before first paint (no flash); this is the shared API.
+  const THEME_KEY = "exo-theme";
+  const THEMES = ["auto", "dark", "light", "phosphor", "sepia", "synthwave"];
+
+  function themeGet() {
+    try {
+      const t = localStorage.getItem(THEME_KEY);
+      return THEMES.indexOf(t) >= 0 ? t : "auto";
+    } catch (_) {
+      return "auto";
+    }
+  }
+
+  function themeSet(t) {
+    if (THEMES.indexOf(t) < 0) t = "auto";
+    try {
+      localStorage.setItem(THEME_KEY, t);
+    } catch (_) {
+      /* private mode: theme just won't persist */
+    }
+    if (t === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+    document.dispatchEvent(new CustomEvent("exo:theme", { detail: { theme: t } }));
+  }
+
+  // ---- UI v2: rail footer stats (present on every page) --------------
+  function bootRail() {
+    const rec = document.getElementById("rail-records");
+    const ev = document.getElementById("rail-events");
+    if (!rec && !ev) return;
+    fetchJSON("/api/status")
+      .then(function (res) {
+        const st = res && res._ok ? res.data : null;
+        if (!st) return;
+        if (rec) rec.textContent = (st.memory_records ?? 0).toLocaleString();
+        if (ev) ev.textContent = (st.events_total ?? 0).toLocaleString();
+      })
+      .catch(function () {
+        /* rail stats are decorative; page keeps working */
+      });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootRail);
+  } else {
+    bootRail();
+  }
+
   global.Exo = {
     AGENT_COLORS,
     FALLBACK_AGENT_COLOR,
@@ -226,5 +292,6 @@
     fetchJSON,
     connectWs,
     openDialog,
+    theme: { get: themeGet, set: themeSet, THEMES },
   };
 })(window);

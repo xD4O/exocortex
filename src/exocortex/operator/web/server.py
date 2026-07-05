@@ -113,4 +113,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def reflect_page() -> FileResponse:
         return FileResponse(str(STATIC_DIR / "reflect.html"))
 
+    @app.get("/settings", include_in_schema=False)
+    async def settings_page() -> FileResponse:
+        return FileResponse(str(STATIC_DIR / "settings.html"))
+
     return app
