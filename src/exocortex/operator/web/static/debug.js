@@ -379,7 +379,13 @@
     const row = el("div", {
       class: "dbg2-row sev-" + sev + (isActive ? " active" : ""),
       "data-event-id": f.event_id,
+      role: "button",
+      tabindex: "0",
+      "aria-haspopup": "dialog",
       onclick: () => openPanel(f),
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(f); }
+      },
     }, [
       el("div", { class: "dbg2-row-stripe" }),
       el("div", { class: "dbg2-row-meat" }, [
