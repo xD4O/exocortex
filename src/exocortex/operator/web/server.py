@@ -77,44 +77,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
 
-    @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
+    # UI v3 is a single-page app: every page route serves the same shell;
+    # the client router activates the right view from location.pathname.
+    def _spa() -> FileResponse:
         return FileResponse(str(STATIC_DIR / "index.html"))
 
-    @app.get("/memory", include_in_schema=False)
-    async def memory_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "memory.html"))
-
-    @app.get("/agents", include_in_schema=False)
-    async def agents_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "agents.html"))
-
-    @app.get("/chat", include_in_schema=False)
-    async def chat_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "chat.html"))
-
-    @app.get("/profile", include_in_schema=False)
-    async def profile_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "profile.html"))
-
-    @app.get("/debug", include_in_schema=False)
-    async def debug_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "debug.html"))
-
-    @app.get("/conversations", include_in_schema=False)
-    async def conversations_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "conversations.html"))
-
-    @app.get("/tasks", include_in_schema=False)
-    async def tasks_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "tasks.html"))
-
-    @app.get("/reflect", include_in_schema=False)
-    async def reflect_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "reflect.html"))
-
-    @app.get("/settings", include_in_schema=False)
-    async def settings_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "settings.html"))
+    for _route in (
+        "/", "/memory", "/agents", "/chat", "/profile",
+        "/debug", "/conversations", "/tasks", "/reflect", "/settings",
+    ):
+        @app.get(_route, include_in_schema=False)
+        async def _page(_r: str = _route) -> FileResponse:  # noqa: B008
+            return _spa()
 
     return app
