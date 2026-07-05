@@ -178,6 +178,7 @@
     expandedEventId: null,
     expandedRowEl: null,
     drawerEl: null,
+    pendingLiveRefresh: false, // a live event arrived while a drawer was open
     contextCache: new Map(),
     taskFilter: null,       // {scope:"task", id} pinned by clicking a badge
     sessionFilter: null,
@@ -417,6 +418,11 @@
     }
 
     const filtered = applyFilters(state.history);
+    // A full rebuild wipes the DOM including any open "why" drawer. Live WS
+    // refreshes are deferred while a drawer is open (see the WS handler), so if
+    // one is still open here it's a non-live rebuild (select/filter) — close it
+    // cleanly so it isn't orphaned by the innerHTML wipe. (D3)
+    if (state.expandedEventId) closeDrawer();
     host.innerHTML = "";
 
     if (filtered.length === 0) {
@@ -432,13 +438,6 @@
         lastDay = d;
       }
       host.appendChild(buildEventRow(ev));
-      // Re-attach drawer if this is the expanded row
-      if (state.expandedEventId === ev.event_id) {
-        const drawer = state.drawerEl;
-        if (drawer && drawer.parentNode) drawer.parentNode.removeChild(drawer);
-        // Drawer will be re-rendered async after re-fetch. Skip — we keep
-        // expansion state but the drawer body is rebuilt below if needed.
-      }
     }
   }
 
@@ -620,6 +619,11 @@
     state.drawerEl = null;
     state.expandedEventId = null;
     state.expandedRowEl = null;
+    // Catch up on any live events deferred while the drawer was open (D3).
+    if (state.pendingLiveRefresh) {
+      state.pendingLiveRefresh = false;
+      renderTimeline();
+    }
   }
 
   // -------------------------------------------------------------------
@@ -710,7 +714,13 @@
         if (state.selectedAgentId && event.agent_id === state.selectedAgentId) {
           state.history.unshift(normalizeEvent(event));
           if (state.history.length > 500) state.history.pop();
-          renderTimeline();
+          // Don't destroy an open "why" drawer mid-read — defer the rebuild
+          // until the operator closes it. (D3)
+          if (state.expandedEventId) {
+            state.pendingLiveRefresh = true;
+          } else {
+            renderTimeline();
+          }
         }
       });
     }
