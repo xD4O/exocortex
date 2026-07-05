@@ -387,13 +387,14 @@
     const t0 = Date.parse(chain.started_at) || Date.now();
     const t1 = Math.max(t0 + 1000, Date.parse(chain.ended_at) || Date.now());
     const span = t1 - t0;
-    const hops = chain.hops || (chain.agents_path || []).length || 1;
-    $("ct-title").textContent = truncate(
-      (chain.tasks && chain.tasks[0] && chain.tasks[0].goal_preview) || "chain " + String(chain.chain_id).slice(0, 8), 60);
+    const path = chainAgents(chain);
+    const hops = Math.max(1, path.length - 1);
+    const story = chainStory(chain);
+    $("ct-title").textContent = truncate(story.what, 64);
     $("ct-meta").textContent =
-      hops + (hops === 1 ? " hop" : " hops") + " · " + fmtDur(span) + " · " + (chain.status || "");
+      hops + (hops === 1 ? " hop" : " hops") + " · " + fmtDur(span) + " · " + (chain.status || "")
+      + (story.did ? " · " + story.did : "");
     // custody path
-    const path = chain.agents_path || [];
     const cp = $("ct-path"); empty(cp);
     path.forEach((a, i) => {
       cp.appendChild(el("div", { class: "chain-node" }, [
@@ -702,14 +703,51 @@
     } catch (_) { /* optional */ }
   }
 
+  // Custody path derived from the audit events: who actually touched the
+  // chain, in order (dispatcher first, executor after) — agents_path alone
+  // often only names the executor.
+  function chainAgents(c) {
+    const seen = [];
+    for (const e of c.events || []) {
+      const a = e.agent_id;
+      if (a && !seen.includes(a)) seen.push(a);
+    }
+    for (const a of c.agents_path || []) if (!seen.includes(a)) seen.push(a);
+    return seen.length ? seen : ["?"];
+  }
+  // Human summary — what the handoff was + what it did, from the goal and
+  // the event ledger (never the raw prompt).
+  function chainStory(c) {
+    const goal = ((c.tasks && c.tasks[0] && c.tasks[0].goal_preview) || c.goal || "").replace(/\s+/g, " ");
+    let what = "";
+    const conv = goal.match(/conversation with ([^.]+?) about:\s*(.+?)(?:\.|Transcript|$)/i);
+    if (conv) {
+      what = "conversation \u201c" + truncate(conv[2].trim(), 42) + "\u201d \u00b7 with " + truncate(conv[1].trim(), 36);
+    } else {
+      what = goal.replace(/^You are [\w-]+\.?,?\s*/i, "").trim();
+      const firstSentence = what.split(/(?<=[.!?])\s/)[0] || what;
+      what = truncate(firstSentence, 88);
+    }
+    const evs = c.events || [];
+    const did = [];
+    const mem = evs.filter((e) => e.kind === "memory.written").length;
+    if (mem) did.push("wrote " + mem + (mem === 1 ? " memory" : " memories"));
+    const tools = evs.filter((e) => (e.kind || "").startsWith("tool.")).length;
+    if (tools) did.push(tools + (tools === 1 ? " tool call" : " tool calls"));
+    const replies = evs.filter((e) => e.kind === "handoff.initiated" && e.agent_id && e.agent_id !== "exocortex").length;
+    if (replies) did.push(replies + (replies === 1 ? " handoff back" : " handoffs back"));
+    return { what: what || "task", did: did.join(" \u00b7 ") };
+  }
+
   function renderChains() {
     const host = $("chains-list");
-    const items = chainCache.filter((c) => (c.hops || 1) >= chainMinHops);
+    const items = chainCache.filter((c) => Math.max(1, chainAgents(c).length - 1) >= chainMinHops);
     $("chains-count").textContent = items.length;
     if (!items.length) return note(host, "no chains ≥" + chainMinHops + " hops — agents form chains when they pass parent_task_id to dispatch_task");
     empty(host);
     for (const c of items.slice(0, 12)) {
-      const path = c.agents_path || [];
+      const path = chainAgents(c);
+      const hops = Math.max(1, path.length - 1);
       const status = c.status || "unknown";
       const sCls = status === "completed" || status === "succeeded" ? "ok" : status === "failed" ? "bad" : "run";
       const lane = el("div", { class: "chain-lane" });
@@ -721,14 +759,14 @@
         if (i < path.length - 1) lane.appendChild(el("div", { class: "chain-link" }));
       });
       const dur = (Date.parse(c.ended_at) || Date.now()) - (Date.parse(c.started_at) || Date.now());
-      const goal = (c.tasks && c.tasks[0] && c.tasks[0].goal_preview) || "";
+      const story = chainStory(c);
       const card = el("div", {
         class: "chain-card", tabindex: "0", role: "button",
         onclick: () => openToasterFor(c),
         onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openToasterFor(c); } },
       }, [
         el("div", { class: "meta" }, [
-          el("span", { class: "hops", text: (c.hops || 1) + ((c.hops || 1) === 1 ? " hop" : " hops") }),
+          el("span", { class: "hops", text: hops + (hops === 1 ? " hop" : " hops") }),
           el("span", { text: "·" }),
           el("span", { class: "num", text: fmtDur(dur) }),
           el("span", { text: "·" }),
@@ -739,7 +777,7 @@
           el("span", { style: { marginLeft: "auto" }, text: String(c.chain_id).slice(0, 8) }),
         ]),
         lane,
-        goal ? el("div", { class: "desc", text: truncate(goal.replace(/\s+/g, " "), 100) }) : null,
+        el("div", { class: "desc", text: story.what + (story.did ? " — " + story.did : "") }),
       ]);
       host.appendChild(card);
     }
