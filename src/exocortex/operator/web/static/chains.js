@@ -148,6 +148,11 @@
         rows.push(t.agent_id);
       }
     }
+    // Don't silently drop tasks whose owning agent couldn't be derived — give
+    // them a placeholder lane so they still show on the swimlane. (C7)
+    if ((chain.tasks || []).some((t) => !t.agent_id)) {
+      rows.push("(unknown)");
+    }
     return rows;
   }
 
@@ -303,7 +308,7 @@
     const taskById = new Map();
     for (const t of (chain.tasks || [])) {
       if (t.task_id) taskById.set(t.task_id, t);
-      const rowIdx = agents.indexOf(t.agent_id);
+      const rowIdx = agents.indexOf(t.agent_id || "(unknown)");
       if (rowIdx < 0) continue;
       const startMs = toMs(t.started_at) || bounds.lo;
       const endMsRaw = toMs(t.ended_at);
