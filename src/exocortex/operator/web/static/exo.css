@@ -929,3 +929,7 @@ body[data-density="compact"] .panel-b { padding: 8px 12px 10px; }
 }
 #ct-lanes { padding-top: 14px; }
 .g-handoff.gh-flip .gh-label { left: auto; right: 7px; }
+
+/* polish pass */
+[hidden] { display: none !important; }   /* .compose{display:flex} must not defeat hidden */
+#inflight-list .dispatch + .dispatch { margin-top: 6px; }

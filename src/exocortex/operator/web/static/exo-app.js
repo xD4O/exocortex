@@ -768,7 +768,6 @@
           el("span", { class: "elapsed num", text: fmtRel(Date.parse(t.created_at) || null) }),
         ]);
         il.appendChild(row);
-        il.appendChild(el("div", { style: { height: "6px" } }));
       }
     }
 
@@ -865,19 +864,23 @@
     for (const a of c.agents_path || []) if (!seen.includes(a)) seen.push(a);
     return seen.length ? seen : ["?"];
   }
+  // Humanize a raw goal/prompt: conversation prompts become
+  // 'conversation "topic" · with <agents>'; anything else loses its
+  // "You are X" preamble and keeps its first sentence.
+  function goalSummary(goal, max) {
+    goal = String(goal || "").replace(/\s+/g, " ");
+    const conv = goal.match(/conversation with ([^.]+?) about:\s*(.+?)(?:\.|Transcript|$)/i);
+    if (conv) {
+      return "conversation \u201c" + truncate(conv[2].trim(), 42) + "\u201d \u00b7 with " + truncate(conv[1].trim(), 36);
+    }
+    let what = goal.replace(/^You are [\w-]+\.?,?\s*/i, "").trim();
+    const firstSentence = what.split(/(?<=[.!?])\s/)[0] || what;
+    return truncate(firstSentence, max || 88);
+  }
   // Human summary — what the handoff was + what it did, from the goal and
   // the event ledger (never the raw prompt).
   function chainStory(c) {
-    const goal = ((c.tasks && c.tasks[0] && c.tasks[0].goal_preview) || c.goal || "").replace(/\s+/g, " ");
-    let what = "";
-    const conv = goal.match(/conversation with ([^.]+?) about:\s*(.+?)(?:\.|Transcript|$)/i);
-    if (conv) {
-      what = "conversation \u201c" + truncate(conv[2].trim(), 42) + "\u201d \u00b7 with " + truncate(conv[1].trim(), 36);
-    } else {
-      what = goal.replace(/^You are [\w-]+\.?,?\s*/i, "").trim();
-      const firstSentence = what.split(/(?<=[.!?])\s/)[0] || what;
-      what = truncate(firstSentence, 88);
-    }
+    const what = goalSummary((c.tasks && c.tasks[0] && c.tasks[0].goal_preview) || c.goal || "");
     const evs = c.events || [];
     const did = [];
     const mem = evs.filter((e) => e.kind === "memory.written").length;
@@ -1467,7 +1470,7 @@
         }, [
           el("span", { class: "stripe" }),
           el("div", { class: "tt" }, [
-            truncate((t.title || t.goal || "").replace(/\s+/g, " "), 90),
+            goalSummary(t.goal || t.title || "", 90),
             el("small", { text: (t.event_count || 0) + " events · " + (t.scope || "") }),
           ]),
           el("div", { class: "tchain" }, (t.agents || []).slice(0, 3).map(agChip)),
@@ -1493,7 +1496,12 @@
     agentsCache = res.agents || [];
     const grid = $("agents-grid"); empty(grid);
     const now = Date.now();
-    for (const a of agentsCache) {
+    const rank = (a) => {
+      const last = Date.parse(a.last_active_at) || 0;
+      const live = a.recently_active || now - last < 5 * 60e3;
+      return (live ? 2e15 : 0) + last;   // live first, then most recent
+    };
+    for (const a of agentsCache.slice().sort((x, y) => rank(y) - rank(x))) {
       const id = a.agent_id || a.id;
       const last = Date.parse(a.last_active_at) || 0;
       const live = a.recently_active || now - last < 5 * 60e3;
@@ -1501,11 +1509,9 @@
       const color = agentColor(id);
       const hourly = a.hourly || [];
       const maxH = Math.max(...hourly, 1);
-      const caps = [];
-      if (a.memory_writes) caps.push(a.memory_writes + " writes");
-      if (a.tool_invocations) caps.push(a.tool_invocations + " tools");
+      const caps = [a.kind || "agent"];
+      if (a.tool_invocations) caps.push(a.tool_invocations + " tool calls");
       if (a.chat_queries) caps.push(a.chat_queries + " chats");
-      caps.push(a.kind || "agent");
       grid.appendChild(el("div", {
         class: "agent-big" + (live ? " is-live-h" : ""), "data-agent": id,
         tabindex: "0", role: "button", "aria-label": "inspect " + id,
@@ -1858,7 +1864,7 @@
           el("span", { class: "dn", text: name }),
           el("span", { class: "dbar" }, [el("i", { style: { width: ((s.count / maxC) * 100) + "%" } })]),
           el("span", { class: "dv num", text: String(s.count) }),
-          el("span", { class: "dm2", text: "records" }),
+          el("span", { class: "dm2", text: s.count === 1 ? "record" : "records" }),
         ]));
       }
     }
@@ -2022,7 +2028,7 @@
           el("span", { class: "stripe" }),
           el("div", { class: "body" }, [
             el("div", { class: "t", text: (f.kind || "failure") + (f.agent_id ? " — " + f.agent_id : "") }),
-            el("div", { class: "d", text: truncate(f.payload_preview || "", 140) }),
+            el("div", { class: "d", text: goalSummary(f.payload_preview || "", 120) }),
           ]),
           el("span", { class: "age num", text: fmtRel(f.timestamp_ms) }),
         ]);

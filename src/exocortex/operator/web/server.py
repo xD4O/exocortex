@@ -77,10 +77,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
 
+    # Assets must revalidate on every load (etag/304 keeps it cheap on
+    # loopback) — heuristic caching otherwise serves stale css/js for days
+    # after a deploy.
+    @app.middleware("http")
+    async def _asset_cache_control(request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # UI v3 is a single-page app: every page route serves the same shell;
     # the client router activates the right view from location.pathname.
     def _spa() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        # no-cache: browsers must revalidate the shell on every navigation,
+        # otherwise a stale pre-SPA page (or an old shell) can be served from
+        # heuristic cache after a deploy.
+        return FileResponse(
+            str(STATIC_DIR / "index.html"),
+            headers={"Cache-Control": "no-cache"},
+        )
 
     for _route in (
         "/", "/memory", "/agents", "/chat", "/profile",
