@@ -19,6 +19,8 @@
 (function () {
   "use strict";
 
+  const { el, truncate, agentColor } = window.Exo;
+
   const STATE_KEY = "exocortex.dashboard.v1";
   const MAX_FEED_LINES = 30;
   const AGENT_ACTIVE_WINDOW_MS = 30_000;
@@ -35,20 +37,6 @@
     "7d":  7 * 24 * 60 * 60 * 1000,
     "all": null,
   };
-
-  const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-  };
-  const FALLBACK_AGENT_COLOR = "#8b949e";
-
-  function agentColor(id) {
-    if (!id) return FALLBACK_AGENT_COLOR;
-    return AGENT_COLORS[id] || FALLBACK_AGENT_COLOR;
-  }
 
   // ------------------------------------------------------------------
   // Persisted UI state
@@ -123,29 +111,6 @@
   // DOM helpers
   // ------------------------------------------------------------------
 
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k in attrs) {
-        if (k === "class") node.className = attrs[k];
-        else if (k === "text") node.textContent = attrs[k];
-        else if (k === "html") node.innerHTML = attrs[k];
-        else if (k === "style") {
-          for (const sk in attrs[k]) node.style[sk] = attrs[k][sk];
-        }
-        else if (k.startsWith("on")) node.addEventListener(k.slice(2), attrs[k]);
-        else node.setAttribute(k, attrs[k]);
-      }
-    }
-    if (children) {
-      for (const c of children) {
-        if (c == null) continue;
-        node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-      }
-    }
-    return node;
-  }
-
   function $(id) { return document.getElementById(id); }
 
   function fmtTime(iso) {
@@ -170,12 +135,6 @@
       return mins ? `${h}h${mins}m ago` : `${h}h ago`;
     }
     return Math.floor(diff / 86_400_000) + "d ago";
-  }
-
-  function truncate(s, n) {
-    if (s == null) return "";
-    s = String(s);
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
   }
 
   function fmtNum(n) {
@@ -1093,6 +1052,13 @@
     if (drawer) {
       drawer.classList.add("open");
       drawer.setAttribute("aria-hidden", "false");
+      // Accessible dialog: focus in + Tab-trap + Esc + restore focus on close.
+      if (window.Exo && Exo.openDialog) {
+        state._dlgClose = Exo.openDialog(drawer, {
+          label: "handoff chain detail",
+          onClose: hideChainDrawer,
+        });
+      }
     }
 
     if (chain) {
@@ -1108,7 +1074,7 @@
     }
   }
 
-  function closeChainDrawer() {
+  function hideChainDrawer() {
     state.drawerOpen = false;
     state.drawerChainId = null;
     const drawer = $("chain-drawer");
@@ -1116,6 +1082,18 @@
       drawer.classList.remove("open");
       drawer.setAttribute("aria-hidden", "true");
     }
+  }
+
+  function closeChainDrawer() {
+    // Route through the accessible-dialog closer (restores focus); fall back to
+    // a plain hide if the dialog helper wasn't active.
+    if (state._dlgClose) {
+      const c = state._dlgClose;
+      state._dlgClose = null;
+      c();
+      return;
+    }
+    hideChainDrawer();
   }
 
   function renderDrawer(chain) {

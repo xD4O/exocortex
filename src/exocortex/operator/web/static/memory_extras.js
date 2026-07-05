@@ -16,6 +16,8 @@
 (function () {
   "use strict";
 
+  const { truncate, agentColor } = window.Exo;
+
   // ---------------------------------------------------------------------
   // 0. Tiny utilities
   // ---------------------------------------------------------------------
@@ -23,15 +25,6 @@
   const SCOPE_LS_KEY = "exocortex.memchat.scope.v1";
   const TASKS_TAB_LS_KEY = "exocortex.memory.tasks.tab.v1";
   const TASKS_COLLAPSED_LS_KEY = "exocortex.memory.tasks.collapsed.v1";
-
-  const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-  };
-  const FALLBACK_AGENT_COLOR = "#8b949e";
 
   const KIND_GLYPH = {
     "memory.written": "M",
@@ -51,11 +44,6 @@
   };
   function kindGlyph(kind) { return KIND_GLYPH[kind] || "·"; }
 
-  function agentColor(agentId) {
-    if (!agentId) return FALLBACK_AGENT_COLOR;
-    return AGENT_COLORS[agentId] || FALLBACK_AGENT_COLOR;
-  }
-
   function fmtTimeFromMs(ms) {
     try {
       const d = new Date(ms);
@@ -64,12 +52,6 @@
       const ss = String(d.getSeconds()).padStart(2, "0");
       return `${hh}:${mm}:${ss}`;
     } catch (_) { return "--:--:--"; }
-  }
-
-  function truncate(s, n) {
-    if (s == null) return "";
-    s = String(s);
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
   }
 
   function el(tag, attrs, children) {

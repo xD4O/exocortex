@@ -10,18 +10,11 @@
 (function () {
   "use strict";
 
+  const { el, escapeHtml, truncate, fmtRelative, agentColor } = window.Exo;
+
   // -------------------------------------------------------------------
   // Constants
   // -------------------------------------------------------------------
-
-  const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-  };
-  const FALLBACK_AGENT_COLOR = "#8b949e";
 
   const KIND_GLYPH = {
     "memory.written": "M",
@@ -72,34 +65,6 @@
   // Helpers
   // -------------------------------------------------------------------
 
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k in attrs) {
-        if (k === "class") node.className = attrs[k];
-        else if (k === "text") node.textContent = attrs[k];
-        else if (k === "html") node.innerHTML = attrs[k];
-        else if (k === "style") {
-          for (const sk in attrs[k]) node.style[sk] = attrs[k][sk];
-        }
-        else if (k.startsWith("on")) node.addEventListener(k.slice(2), attrs[k]);
-        else node.setAttribute(k, attrs[k]);
-      }
-    }
-    if (children) {
-      for (const c of children) {
-        if (c == null) continue;
-        node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-      }
-    }
-    return node;
-  }
-
-  function agentColor(id) {
-    if (!id) return FALLBACK_AGENT_COLOR;
-    return AGENT_COLORS[id] || FALLBACK_AGENT_COLOR;
-  }
-
   function kindGlyph(k) { return KIND_GLYPH[k] || "·"; }
 
   function fmtTimeFromMs(ms) {
@@ -123,31 +88,12 @@
     } catch (_) { return "—"; }
   }
 
-  function fmtRelative(ms) {
-    if (!ms) return "—";
-    const diff = Date.now() - ms;
-    if (diff < 0) return "just now";
-    if (diff < 60_000) return Math.max(1, Math.floor(diff / 1000)) + "s ago";
-    if (diff < 3_600_000) return Math.floor(diff / 60_000) + "m ago";
-    if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + "h ago";
-    return Math.floor(diff / 86_400_000) + "d ago";
-  }
-
-  function truncate(s, n) {
-    if (s == null) return "";
-    s = String(s);
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
-  }
-
   function dayKey(ms) {
     const d = new Date(ms);
     return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
   }
 
   // Tiny JSON syntax highlighter (no deps). Returns escaped HTML.
-  function escapeHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
   function highlightJson(obj) {
     let s;
     try { s = JSON.stringify(obj, null, 2); } catch (_) { s = String(obj); }
@@ -463,10 +409,21 @@
     const row = el("div", {
       class: "ev-row" + (state.expandedEventId === ev.event_id ? " expanded" : ""),
       "data-event-id": ev.event_id,
+      // Disclosure semantics: keyboard-operable button controlling the drawer.
+      role: "button",
+      tabindex: "0",
+      "aria-expanded": state.expandedEventId === ev.event_id ? "true" : "false",
+      "aria-controls": "why-" + ev.event_id,
       onclick: (e) => {
         // Don't trigger drawer when clicking a badge
         if (e.target && e.target.classList && e.target.classList.contains("badge")) return;
         toggleDrawer(ev, row);
+      },
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleDrawer(ev, row);
+        }
       },
     }, [
       el("div", { class: "gutter" }, [
@@ -517,8 +474,13 @@
     state.expandedEventId = ev.event_id;
     state.expandedRowEl = rowEl;
     rowEl.classList.add("expanded");
+    rowEl.setAttribute("aria-expanded", "true");
 
-    const drawer = el("div", { class: "why-drawer", "data-for": ev.event_id }, [
+    const drawer = el("div", {
+      class: "why-drawer", "data-for": ev.event_id,
+      id: "why-" + ev.event_id, role: "region",
+      "aria-label": "Event detail", tabindex: "-1",
+    }, [
       el("h4", { text: "Event payload" }),
       buildJsonBlock(ev),
       el("h4", { text: "What came before in this task/session" }),
@@ -528,6 +490,7 @@
     ]);
     state.drawerEl = drawer;
     rowEl.parentNode.insertBefore(drawer, rowEl.nextSibling);
+    drawer.focus();  // move focus into the opened region
 
     const ctx = await fetchContext(state.selectedAgentId, ev.event_id);
     if (state.expandedEventId !== ev.event_id) return; // closed during fetch
@@ -610,19 +573,25 @@
   }
 
   function closeDrawer() {
+    const row = state.expandedRowEl;
     if (state.drawerEl && state.drawerEl.parentNode) {
       state.drawerEl.parentNode.removeChild(state.drawerEl);
     }
-    if (state.expandedRowEl) {
-      state.expandedRowEl.classList.remove("expanded");
+    if (row) {
+      row.classList.remove("expanded");
+      row.setAttribute("aria-expanded", "false");
     }
     state.drawerEl = null;
     state.expandedEventId = null;
     state.expandedRowEl = null;
     // Catch up on any live events deferred while the drawer was open (D3).
+    // If we rebuild, the row node is replaced — don't restore focus to a
+    // detached node; otherwise return focus to the row the drawer belonged to.
     if (state.pendingLiveRefresh) {
       state.pendingLiveRefresh = false;
       renderTimeline();
+    } else if (row && typeof row.focus === "function") {
+      row.focus();
     }
   }
 

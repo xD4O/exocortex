@@ -21,20 +21,11 @@
 //
 // localStorage key: "exocortex.tasks.v2"
 
+const { truncate, agentColor, FALLBACK_AGENT_COLOR } = window.Exo;
+
 // ---------------------------------------------------------------------------
 // Constants — palette + behaviour
 // ---------------------------------------------------------------------------
-
-const AGENT_COLORS = {
-  codex: "#58a6ff",
-  hermes: "#d29922",
-  claude: "#7ee787",
-  claude_code: "#7ee787",
-  openclaw: "#bb6bd9",
-};
-// Match the canonical unknown-agent color (was #8b9bab here, #8b949e
-// elsewhere — the same agent rendered a different grey per page). D1.
-const FALLBACK_AGENT_COLOR = (window.Exo && Exo.FALLBACK_AGENT_COLOR) || "#8b949e";
 
 const STATUS_COLOR = {
   proposed:    "#8b9bab",
@@ -164,11 +155,6 @@ function svgEl(tag, attrs, children) {
 // Formatters
 // ---------------------------------------------------------------------------
 
-function agentColor(id) {
-  if (!id) return FALLBACK_AGENT_COLOR;
-  return AGENT_COLORS[id] || FALLBACK_AGENT_COLOR;
-}
-
 function statusColor(s) { return STATUS_COLOR[s] || FALLBACK_AGENT_COLOR; }
 function statusGlyph(s) { return STATUS_GLYPH[s] || "·"; }
 
@@ -237,12 +223,6 @@ function fmtClock(input) {
   return String(d.getHours()).padStart(2, "0") + ":" +
          String(d.getMinutes()).padStart(2, "0") + ":" +
          String(d.getSeconds()).padStart(2, "0");
-}
-
-function truncate(s, n) {
-  if (s == null) return "";
-  s = String(s);
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 function shortId(s) {
@@ -944,6 +924,13 @@ async function openPanel(id) {
     scrim.classList.add("open");
     scrim.setAttribute("aria-hidden", "false");
   }
+  // Accessible dialog: focus in + Tab-trap + Esc + restore focus on close.
+  if (window.Exo && Exo.openDialog) {
+    state._dlgClose = Exo.openDialog(panel, {
+      labelledBy: "tasks-panel-title",
+      onClose: hidePanel,
+    });
+  }
 
   const t = state.tasks.get(id);
   if (!t) {
@@ -1080,7 +1067,7 @@ function panelSection(label, ...children) {
   return sec;
 }
 
-function closePanel() {
+function hidePanel() {
   const panel = $("tasks-panel");
   const scrim = $("tasks-panel-scrim");
   if (!panel) return;
@@ -1093,6 +1080,18 @@ function closePanel() {
   state.selectedTaskId = null;
   persist();
   applySelectionClass();
+}
+
+function closePanel() {
+  // Route through the accessible-dialog closer (restores focus); fall back to
+  // a plain hide if the dialog helper wasn't active.
+  if (state._dlgClose) {
+    const c = state._dlgClose;
+    state._dlgClose = null;
+    c();
+    return;
+  }
+  hidePanel();
 }
 
 // ---------------------------------------------------------------------------
