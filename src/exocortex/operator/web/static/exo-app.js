@@ -412,30 +412,65 @@
         text: fmtTime(t.getTime()),
       }));
     }
-    // lanes: one per agent, blocks from that agent's tasks
+    // lanes: one per agent, activity segments built from the EVENT ledger —
+    // what each agent actually did, on the real timeline (never the prompt).
     const lanes = $("ct-lanes"); empty(lanes);
-    const byAgent = new Map();
-    for (const t of chain.tasks || []) {
-      const a = t.agent_id || "?";
+    const SKIP_KINDS = new Set(["task.status_changed", "session.status_changed"]);
+    const evLabel = (k) => {
+      if (!k) return "event";
+      if (k.startsWith("tool.")) return k.split(".")[1] || "tool";
+      const m = {
+        "task.created": "created", "task.dispatched": "dispatch",
+        "handoff.initiated": "handoff", "session.opened": "accept",
+        "memory.written": "memory_write", "memory.read": "memory_read",
+        "task.completed": "completed", "task.failed": "failed",
+        "session.closed": "close",
+      };
+      return m[k] || k.split(".").pop();
+    };
+    const evsSorted = (chain.events || []).slice()
+      .sort((a, b) => (a.timestamp_ms || 0) - (b.timestamp_ms || 0));
+    const coord = path[0] || "?";
+    const byAgent = new Map(path.map((a) => [a, []]));
+    for (const e of evsSorted) {
+      const a = e.agent_id || coord;         // lifecycle events belong to the coordinator lane
       if (!byAgent.has(a)) byAgent.set(a, []);
-      byAgent.get(a).push(t);
+      byAgent.get(a).push(e);
     }
-    for (const [a, tasks] of byAgent) {
+    const gap = Math.max(1500, span * 0.18); // new block after a quiet stretch
+    for (const [a, aEvs] of byAgent) {
+      const meaningful = aEvs.filter((e) => !SKIP_KINDS.has(e.kind));
+      if (!meaningful.length) continue;
+      // cluster into activity segments
+      const blocks = [];
+      for (const e of meaningful) {
+        const t = e.timestamp_ms || t0;
+        const last = blocks[blocks.length - 1];
+        if (last && t - last.e <= gap) { last.e = t; last.kinds.push(evLabel(e.kind)); }
+        else blocks.push({ s: t, e: t, kinds: [evLabel(e.kind)] });
+      }
       const track = el("div", { class: "g-track" });
-      for (const t of tasks) {
-        const s = Date.parse(t.started_at) || t0;
-        const e = Date.parse(t.ended_at) || t1;
-        const leftPct = Math.max(0, ((s - t0) / span) * 100);
-        const wPct = Math.max(1.5, ((e - s) / span) * 100);
+      for (const b of blocks) {
+        // label: unique kinds in order, repeats collapsed to ×N
+        const counts = [];
+        for (const k of b.kinds) {
+          const lastK = counts[counts.length - 1];
+          if (lastK && lastK.k === k) lastK.n += 1;
+          else counts.push({ k, n: 1 });
+        }
+        const label = counts.map((c) => c.k + (c.n > 1 ? " \u00d7" + c.n : "")).join(" \u00b7 ");
+        const leftPct = Math.max(0, ((b.s - t0) / span) * 100);
+        const wPct = Math.max(2.5, ((b.e - b.s) / span) * 100);
         track.appendChild(el("span", {
           class: "g-block",
-          title: t.goal_preview || "",
+          title: label,
           style: {
-            left: leftPct + "%", width: Math.min(wPct, 100 - leftPct) + "%",
+            left: Math.min(leftPct, 97) + "%",
+            width: Math.min(wPct, 100 - Math.min(leftPct, 97)) + "%",
             background: "color-mix(in srgb, " + agentColor(a) + " 82%, transparent)",
             color: agentColor(a),
           },
-        }, [el("span", { style: { color: "#fff" }, text: truncate(t.goal_preview || t.status || "", 60) })]));
+        }, [el("span", { style: { color: "#fff" }, text: label })]));
       }
       lanes.appendChild(el("div", { class: "g-lane" }, [
         el("span", { class: "g-who ag-chip" }, [
