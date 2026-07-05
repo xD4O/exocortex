@@ -933,3 +933,80 @@ body[data-density="compact"] .panel-b { padding: 8px 12px 10px; }
 /* polish pass */
 [hidden] { display: none !important; }   /* .compose{display:flex} must not defeat hidden */
 #inflight-list .dispatch + .dispatch { margin-top: 6px; }
+
+/* ═══ swimlane revamp: readable custody blocks + anchored handoffs ═══ */
+#ct-lanes { padding-top: 8px; }
+.g-lane { grid-template-columns: 92px 1fr; }
+.g-lane + .g-lane { margin-top: 10px; }
+.g-lane:hover .g-track { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.g-track { height: 26px; border-radius: 6px; overflow: visible; }
+.g-track::before { opacity: .4; }
+.g-block {
+  top: 3px; bottom: 3px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 8px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  box-shadow: none;
+}
+.g-block .g-txt {
+  color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.g-block .g-dur {
+  color: rgba(255,255,255,.75); font-weight: 400; flex: none; font-size: 9px;
+}
+.g-lab-out {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  white-space: nowrap; padding: 0 6px;
+  pointer-events: none; z-index: 1;
+}
+/* handoff connector: subtle full-height line; arrow + name sit on the
+   receiving lane so direction reads without a legend */
+.g-handoff {
+  position: absolute; top: 4px; bottom: 2px; width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--accent-2) 45%, transparent);
+  opacity: 1; pointer-events: auto; z-index: 2;
+}
+.g-handoff::after { content: none; }
+.g-handoff .gh-arrow {
+  position: absolute; left: 1px;
+  font-size: 10px; line-height: 1;
+}
+.g-handoff.gh-flip .gh-arrow { left: auto; right: 1px; }
+.g-handoff .gh-label {
+  position: absolute; left: 10px; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px; padding: 1px 5px;
+}
+.g-handoff.gh-flip .gh-label { left: auto; right: 10px; }
+.g-ruler { margin-left: 102px; height: 14px; }
+.g-ruler span { transform: translateX(-50%); }
+.g-ruler .tick-first { transform: none; }
+.g-ruler .tick-last { transform: translateX(-100%); }
+
+/* drop-line handoff connectors */
+.g-handoff {
+  top: auto; bottom: auto;                 /* JS sets top+height */
+  border-left: 1.5px solid color-mix(in srgb, var(--accent-2) 60%, transparent);
+}
+.g-handoff .gh-arrow { position: absolute; left: -4.5px; font-size: 11px; line-height: 1; }
+.g-handoff .gh-arrow.down { bottom: -4px; top: auto; }
+.g-handoff .gh-arrow.up { top: -4px; bottom: auto; }
+.g-handoff.gh-flip .gh-arrow { left: -4.5px; right: auto; }  /* arrow stays on the line */
+.g-handoff .gh-label { transform: translateY(-50%); }
+
+/* legibility chips for outside block labels */
+.g-lab-out {
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 9px;
+  z-index: 3;
+}
+.g-handoff .gh-label { z-index: 4; }

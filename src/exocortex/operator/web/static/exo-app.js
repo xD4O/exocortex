@@ -472,12 +472,16 @@
       if (i < displayPath.length - 1) cp.appendChild(el("div", { class: "chain-link" }));
     });
 
-    // ruler
+    // ruler: absolute time at both ends, elapsed offsets between
     const ruler = $("ct-ruler"); empty(ruler);
     for (let k = 0; k <= 4; k++) {
+      const label = k === 0 ? fmtTime(t0)
+        : k === 4 ? fmtTime(t1) + " (+" + fmtDur(span) + ")"
+        : "+" + fmtDur((span * k) / 4);
       ruler.appendChild(el("span", {
+        class: k === 0 ? "tick-first" : k === 4 ? "tick-last" : null,
         style: { left: (k * 25) + "%" },
-        text: fmtTime(t0 + (span * k) / 4),
+        text: label,
       }));
     }
 
@@ -496,12 +500,12 @@
       const top = stack[stack.length - 1];
       if (e.kind === "session.opened" && e.agent_id && e.agent_id !== top) {
         segs.push({ agent: top, s: heldSince, e: t });
-        handoffs.push({ t, to: e.agent_id });
+        handoffs.push({ t, from: top, to: e.agent_id });
         stack.push(e.agent_id); heldSince = t;
       } else if (e.kind === "session.closed" && e.agent_id === top && stack.length > 1) {
         segs.push({ agent: top, s: heldSince, e: t });
         stack.pop();
-        handoffs.push({ t, to: stack[stack.length - 1] });
+        handoffs.push({ t, from: top, to: stack[stack.length - 1] });
         heldSince = t;
       }
     }
@@ -539,38 +543,95 @@
       if (!displayPath.includes(a)) displayPath.push(a);
     }
 
+    // one lane per agent — labels move OUTSIDE blocks that are too narrow
+    // to read, wide blocks carry their duration on the right.
+    const laneEls = new Map();
     for (const a of displayPath) {
       const track = el("div", { class: "g-track" });
       for (const seg of segs) {
         if (seg.agent !== a) continue;
         const leftPct = Math.max(0, ((seg.s - t0) / span) * 100);
-        const wPct = Math.max(2.5, ((seg.e - seg.s) / span) * 100);
-        track.appendChild(el("span", {
-          class: "g-block", title: seg.label,
+        const wPct = Math.max(1.6, ((seg.e - seg.s) / span) * 100);
+        const clampedLeft = Math.min(leftPct, 98);
+        const clampedW = Math.min(wPct, 100 - clampedLeft);
+        const wide = clampedW >= 16;
+        const block = el("span", {
+          class: "g-block", title: seg.label + " \u00b7 " + fmtDur(seg.e - seg.s),
           style: {
-            left: Math.min(leftPct, 97) + "%",
-            width: Math.min(wPct, 100 - Math.min(leftPct, 97)) + "%",
-            background: "color-mix(in srgb, " + agentColor(a) + " 82%, transparent)",
-            color: agentColor(a),
+            left: clampedLeft + "%",
+            width: clampedW + "%",
+            background: "color-mix(in srgb, " + agentColor(a) + " 78%, transparent)",
+            borderColor: "color-mix(in srgb, " + agentColor(a) + " 55%, transparent)",
           },
-        }, [el("span", { style: { color: "#fff" }, text: seg.label })]));
+        }, wide
+          ? [el("span", { class: "g-txt", text: seg.label }),
+             el("span", { class: "g-dur", text: fmtDur(seg.e - seg.s) })]
+          : []);
+        track.appendChild(block);
+        if (!wide) {
+          // label sits beside the block, in the agent's color
+          const flip = clampedLeft + clampedW > 72;
+          track.appendChild(el("span", {
+            class: "g-lab-out" + (flip ? " flip" : ""),
+            style: flip
+              ? { right: (100 - clampedLeft) + "%", color: agentColor(a) }
+              : { left: (clampedLeft + clampedW) + "%", color: agentColor(a) },
+            text: seg.label,
+          }));
+        }
       }
-      lanes.appendChild(el("div", { class: "g-lane" }, [
+      const lane = el("div", { class: "g-lane" }, [
         el("span", { class: "g-who ag-chip" }, [
           el("span", { class: "dot", style: { background: agentColor(a) } }),
           el("span", { class: "mono", text: a }),
         ]),
         track,
-      ]));
+      ]);
+      laneEls.set(a, lane);
+      lanes.appendChild(lane);
     }
-    for (const h of handoffs) {
-      const leftPct = Math.max(0, Math.min(99, ((h.t - t0) / span) * 100));
-      lanes.appendChild(el("div", {
-        class: "g-handoff" + (leftPct > 80 ? " gh-flip" : ""),
-        title: "custody \u2192 " + h.to + " @ " + fmtTime(h.t),
-        style: { left: "calc(102px + (100% - 102px) * " + (leftPct / 100).toFixed(4) + ")" },
-      }, [el("span", { class: "gh-label", style: { color: agentColor(h.to) }, text: "\u2192 " + h.to })]));
-    }
+    // handoff connectors: a short drop-line from the giving lane to the
+    // receiving lane — arrowhead lands on the receiver, label rides the
+    // midpoint. No full-height lines crossing block text.
+    requestAnimationFrame(() => {
+      const laneY = (a) => {
+        const ln = laneEls.get(a);
+        return ln ? ln.offsetTop + ln.offsetHeight / 2 : 12;
+      };
+      const placed = [];   // {gapY, x, flip} — for de-colliding clustered labels
+      for (const h of handoffs) {
+        const leftPct = Math.max(0, Math.min(99.4, ((h.t - t0) / span) * 100));
+        const y1 = laneY(h.from), y2 = laneY(h.to);
+        const topY = Math.min(y1, y2), height = Math.max(8, Math.abs(y2 - y1));
+        const down = y2 >= y1;
+        let flip = leftPct > 78;
+        // two labels in the same lane-gap within ~12% of each other would
+        // overlap — put the later one on the other side of its line
+        const clash = placed.find((p) => Math.abs(p.gapY - topY) < 4 && Math.abs(p.x - leftPct) < 12);
+        if (clash) flip = !clash.flip;
+        placed.push({ gapY: topY, x: leftPct, flip });
+        lanes.appendChild(el("div", {
+          class: "g-handoff" + (flip ? " gh-flip" : ""),
+          title: h.from + " \u2192 " + h.to + " @ " + fmtTime(h.t),
+          style: {
+            left: "calc(102px + (100% - 102px) * " + (leftPct / 100).toFixed(4) + ")",
+            top: topY + "px",
+            height: height + "px",
+          },
+        }, [
+          el("span", {
+            class: "gh-arrow " + (down ? "down" : "up"),
+            style: { color: agentColor(h.to) },
+            text: down ? "\u25be" : "\u25b4",
+          }),
+          el("span", {
+            class: "gh-label",
+            style: { top: (height / 2) + "px", color: agentColor(h.to) },
+            text: "\u2192 " + h.to,
+          }),
+        ]));
+      }
+    });
 
     // ledger (payload-aware previews)
     const led = $("ct-events"); empty(led);
