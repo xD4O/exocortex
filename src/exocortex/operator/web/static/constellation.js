@@ -674,6 +674,7 @@ function recomputeClusters() {
   }
   clusters.sort((a, b) => b.size - a.size);
   if (clusters.length > MAX_CLUSTER_LABELS) clusters.length = MAX_CLUSTER_LABELS;
+  _labelCamSig = null;  // clusters changed → force a re-layout
   layoutClusterLabels();
 }
 
@@ -683,6 +684,19 @@ function worldToScreen(x, y) {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h };
+}
+
+let _labelCamSig = null;
+// Re-lay-out cluster labels only when the camera moved (or clusters changed,
+// which nulls the sig) — labels track world centroids, so a static camera
+// means identical labels. Avoids rebuilding ~12 DOM nodes every frame. (D4 perf)
+function maybeLayoutClusterLabels() {
+  if (!clusterLabelsHost) return;
+  const sig = camera.zoom.toFixed(4) + "|" +
+    camera.position.x.toFixed(2) + "|" + camera.position.y.toFixed(2);
+  if (sig === _labelCamSig) return;
+  _labelCamSig = sig;
+  layoutClusterLabels();
 }
 
 function layoutClusterLabels() {
@@ -1668,14 +1682,22 @@ function driftAmbient() {
   pos.needsUpdate = true;
 }
 
+let _bloomsDirty = false;
 function tickBlooms(nowPerf) {
   if (!mainGeom) return;
   const attr = mainGeom.getAttribute("aBloom");
-  for (let i = 0; i < attr.count; i++) attr.setX(i, 0);
   if (state.highlights.length === 0) {
-    attr.needsUpdate = true;
+    // No active blooms. Only clear + re-upload the whole point buffer once —
+    // on the frame we transition to empty — then skip entirely while idle,
+    // instead of zeroing every point and uploading every frame. (D4 perf)
+    if (_bloomsDirty) {
+      for (let i = 0; i < attr.count; i++) attr.setX(i, 0);
+      attr.needsUpdate = true;
+      _bloomsDirty = false;
+    }
     return;
   }
+  for (let i = 0; i < attr.count; i++) attr.setX(i, 0);
   const still = [];
   for (const h of state.highlights) {
     if (!state.visible[h.recordIdx]) continue;
@@ -1727,7 +1749,7 @@ function animate(nowPerf) {
   tickChatAnims(nowPerf);
   tickCameraTween(nowPerf);
   updateAzimuth(nowPerf);
-  layoutClusterLabels();
+  maybeLayoutClusterLabels();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
