@@ -412,9 +412,11 @@
         text: fmtTime(t.getTime()),
       }));
     }
-    // lanes: one per agent, activity segments built from the EVENT ledger —
-    // what each agent actually did, on the real timeline (never the prompt).
+    // lanes: a CUSTODY timeline. Each agent holds one contiguous block for
+    // the window it owned the task; vertical markers show the literal
+    // handoff moments where custody crossed lanes.
     const lanes = $("ct-lanes"); empty(lanes);
+    lanes.style.position = "relative";
     const SKIP_KINDS = new Set(["task.status_changed", "session.status_changed"]);
     const evLabel = (k) => {
       if (!k) return "event";
@@ -431,46 +433,61 @@
     const evsSorted = (chain.events || []).slice()
       .sort((a, b) => (a.timestamp_ms || 0) - (b.timestamp_ms || 0));
     const coord = path[0] || "?";
-    const byAgent = new Map(path.map((a) => [a, []]));
+
+    // --- custody switches: coordinator holds first; session.opened hands
+    // custody to that agent; session.closed hands it back. ---
+    const segs = [];           // {agent, s, e}
+    const handoffs = [];       // {t, to}
+    let holder = coord, heldSince = t0;
     for (const e of evsSorted) {
-      const a = e.agent_id || coord;         // lifecycle events belong to the coordinator lane
-      if (!byAgent.has(a)) byAgent.set(a, []);
-      byAgent.get(a).push(e);
-    }
-    const gap = Math.max(1500, span * 0.18); // new block after a quiet stretch
-    for (const [a, aEvs] of byAgent) {
-      const meaningful = aEvs.filter((e) => !SKIP_KINDS.has(e.kind));
-      if (!meaningful.length) continue;
-      // cluster into activity segments
-      const blocks = [];
-      for (const e of meaningful) {
-        const t = e.timestamp_ms || t0;
-        const last = blocks[blocks.length - 1];
-        if (last && t - last.e <= gap) { last.e = t; last.kinds.push(evLabel(e.kind)); }
-        else blocks.push({ s: t, e: t, kinds: [evLabel(e.kind)] });
+      const t = e.timestamp_ms || t0;
+      const a = e.agent_id || coord;
+      if (e.kind === "session.opened" && a !== holder) {
+        segs.push({ agent: holder, s: heldSince, e: t });
+        handoffs.push({ t, to: a });
+        holder = a; heldSince = t;
+      } else if (e.kind === "session.closed" && a === holder && holder !== coord) {
+        segs.push({ agent: holder, s: heldSince, e: t });
+        handoffs.push({ t, to: coord });
+        holder = coord; heldSince = t;
       }
+    }
+    segs.push({ agent: holder, s: heldSince, e: t1 });
+
+    // label each custody block with what its holder actually did in it
+    for (const seg of segs) {
+      const inside = evsSorted.filter((e) => {
+        const t = e.timestamp_ms || t0;
+        const a = e.agent_id || coord;
+        return a === seg.agent && t >= seg.s - 500 && t <= seg.e + 500 && !SKIP_KINDS.has(e.kind);
+      });
+      const counts = [];
+      for (const e of inside) {
+        const k = evLabel(e.kind);
+        const last = counts[counts.length - 1];
+        if (last && last.k === k) last.n += 1;
+        else counts.push({ k, n: 1 });
+      }
+      seg.label = counts.map((c) => c.k + (c.n > 1 ? " \u00d7" + c.n : "")).join(" \u00b7 ")
+        || (seg.agent === coord ? "waiting" : "working");
+    }
+
+    // render one lane per custody-path agent, blocks = its custody windows
+    for (const a of path) {
       const track = el("div", { class: "g-track" });
-      for (const b of blocks) {
-        // label: unique kinds in order, repeats collapsed to ×N
-        const counts = [];
-        for (const k of b.kinds) {
-          const lastK = counts[counts.length - 1];
-          if (lastK && lastK.k === k) lastK.n += 1;
-          else counts.push({ k, n: 1 });
-        }
-        const label = counts.map((c) => c.k + (c.n > 1 ? " \u00d7" + c.n : "")).join(" \u00b7 ");
-        const leftPct = Math.max(0, ((b.s - t0) / span) * 100);
-        const wPct = Math.max(2.5, ((b.e - b.s) / span) * 100);
+      for (const seg of segs) {
+        if (seg.agent !== a) continue;
+        const leftPct = Math.max(0, ((seg.s - t0) / span) * 100);
+        const wPct = Math.max(2.5, ((seg.e - seg.s) / span) * 100);
         track.appendChild(el("span", {
-          class: "g-block",
-          title: label,
+          class: "g-block", title: seg.label,
           style: {
             left: Math.min(leftPct, 97) + "%",
             width: Math.min(wPct, 100 - Math.min(leftPct, 97)) + "%",
             background: "color-mix(in srgb, " + agentColor(a) + " 82%, transparent)",
             color: agentColor(a),
           },
-        }, [el("span", { style: { color: "#fff" }, text: label })]));
+        }, [el("span", { style: { color: "#fff" }, text: seg.label })]));
       }
       lanes.appendChild(el("div", { class: "g-lane" }, [
         el("span", { class: "g-who ag-chip" }, [
@@ -480,6 +497,16 @@
         track,
       ]));
     }
+    // literal handoff markers: vertical connectors at each custody transfer
+    for (const h of handoffs) {
+      const leftPct = Math.max(0, Math.min(99, ((h.t - t0) / span) * 100));
+      lanes.appendChild(el("div", {
+        class: "g-handoff" + (leftPct > 80 ? " gh-flip" : ""),
+        title: "custody \u2192 " + h.to + " @ " + fmtTime(h.t),
+        style: { left: "calc(102px + (100% - 102px) * " + (leftPct / 100).toFixed(4) + ")" },
+      }, [el("span", { class: "gh-label", style: { color: agentColor(h.to) }, text: "\u2192 " + h.to })]));
+    }
+
     // ledger
     const led = $("ct-events"); empty(led);
     for (const ev of (chain.events || []).slice(0, 24)) {

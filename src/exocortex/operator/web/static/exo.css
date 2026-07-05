@@ -909,3 +909,23 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 body[data-density="compact"] { font-size: 12.5px; }
 body[data-density="compact"] .panel-b { padding: 8px 12px 10px; }
+
+/* literal handoff markers on the toaster swimlane */
+.g-handoff {
+  position: absolute; top: 14px; bottom: 0; width: 0;
+  border-left: 2px dashed var(--accent-2);
+  opacity: .85; pointer-events: auto; z-index: 2;
+}
+.g-handoff::after {
+  content: "▾"; position: absolute; top: -12px; left: -5px;
+  color: var(--accent-2); font-size: 11px;
+}
+.g-handoff .gh-label {
+  position: absolute; top: -14px; left: 7px;
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-radius: 4px; padding: 0 4px;
+}
+#ct-lanes { padding-top: 14px; }
+.g-handoff.gh-flip .gh-label { left: auto; right: 7px; }
