@@ -281,6 +281,20 @@
     bootRail();
   }
 
+  // ---- UI v2: global search hotkey (constellation has the real search) --
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      if (location.pathname !== "/memory") location.href = "/memory";
+      else {
+        const q = document.querySelector("#cons-search, .cons-search input, input[type=search]");
+        if (q) q.focus();
+      }
+    }
+  });
+
   global.Exo = {
     AGENT_COLORS,
     FALLBACK_AGENT_COLOR,

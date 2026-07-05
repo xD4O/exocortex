@@ -583,16 +583,84 @@
       const id = a.id || a.agent_id || "?";
       const active = (now - entry.lastSeen) < AGENT_ACTIVE_WINDOW_MS;
       const lastEv = a.last_event_kind || a.last_kind || "";
+      const color = agentColor(id);
+      const rel = entry.lastSeen ? fmtRelative(entry.lastSeen) : "no events yet";
+      const dormant = !entry.lastSeen || (now - entry.lastSeen) > 86_400_000;
+      const mode = active ? "live" : dormant ? "dormant" : "idle";
+      const status = active
+        ? [el("span", { class: "live-word", text: "\u25cf active" }),
+           el("span", { text: " \u00b7 " + (lastEv || "working") + " \u00b7 " + rel })]
+        : [el("span", { text: (dormant ? "dormant \u00b7 last seen " : "idle ") + rel
+             + (lastEv && !dormant ? " \u00b7 last: " + lastEv : "") })];
       host.appendChild(el("div", {
-        class: "happen-agent" + (active ? " active" : ""),
+        class: "happen-agent" + (active ? " active" : dormant ? " dormant" : ""),
       }, [
-        el("span", { class: "ha-dot" + (active ? " pulse" : ""), style: { color: agentColor(id) }, text: active ? "●" : "○" }),
-        el("span", { class: "ha-id mono", text: id }),
-        el("span", { class: "ha-meta mono", text:
-          (entry.lastSeen ? "(" + fmtRelative(entry.lastSeen) : "(idle")
-          + (lastEv ? ", " + lastEv : "") + ")" }),
+        el("span", { class: "ha-avatar mono", style: { background: color }, text: agentAbbr(id) }),
+        el("div", { class: "ha-who" }, [
+          el("div", { class: "ha-nm", text: id }),
+          el("div", { class: "ha-st mono" }, status),
+        ]),
+        el("div", { class: "ha-trace" }, [traceSvg(id, mode, color)]),
       ]));
     }
+  }
+
+  // -- UI v2: presence avatars + deterministic activity traces --------
+  function agentAbbr(id) {
+    if (!id) return "?";
+    const parts = String(id).split(/[_-]/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toLowerCase();
+    return String(id).slice(0, 2).toLowerCase();
+  }
+  function traceSvg(id, mode, color) {
+    const active = mode === "live";
+    const dormant = mode === "dormant";
+    const NS = "http://www.w3.org/2000/svg";
+    let seed = 0;
+    for (let i = 0; i < id.length; i++) seed = (seed * 31 + id.charCodeAt(i)) % 9973;
+    const rnd = (k) => {
+      const x = Math.sin((seed + k) * 127.1 + 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    let d = "M0 11";
+    let x = 0, k = 0;
+    while (x < 96) {
+      x = Math.min(96, x + 8 + Math.floor(rnd(k++) * 10));
+      const y = dormant ? 11 : 11 + Math.round((rnd(k++) - 0.5) * 14);
+      d += " L" + x + " " + y;
+    }
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("width", "96");
+    svg.setAttribute("height", "22");
+    svg.setAttribute("viewBox", "0 0 96 22");
+    svg.setAttribute("aria-hidden", "true");
+    const base = document.createElementNS(NS, "path");
+    base.setAttribute("d", d);
+    base.setAttribute("fill", "none");
+    base.setAttribute("stroke", color);
+    base.setAttribute("stroke-width", "1.6");
+    base.setAttribute("stroke-linejoin", "round");
+    if (active) {
+      base.setAttribute("opacity", ".35");
+      const sweep = document.createElementNS(NS, "path");
+      sweep.setAttribute("d", d);
+      sweep.setAttribute("pathLength", "100");
+      sweep.setAttribute("fill", "none");
+      sweep.setAttribute("stroke", color);
+      sweep.setAttribute("stroke-width", "1.6");
+      sweep.setAttribute("stroke-linejoin", "round");
+      sweep.setAttribute("class", "trace-sweep");
+      svg.appendChild(base);
+      svg.appendChild(sweep);
+    } else if (dormant) {
+      base.setAttribute("opacity", ".45");
+      base.setAttribute("stroke-dasharray", "2 4");
+      svg.appendChild(base);
+    } else {
+      base.setAttribute("opacity", ".55");
+      svg.appendChild(base);
+    }
+    return svg;
   }
 
   function renderInFlight() {
@@ -612,9 +680,13 @@
     for (const it of items) {
       const elapsed = Math.floor((now - it.startMs) / 1000);
       host.appendChild(el("div", { class: "in-flight" }, [
-        el("span", { class: "if-agent mono", text: "[" + (it.agent || "?") + "]" }),
+        el("span", { class: "ag-chip mono" }, [
+          el("span", { class: "agc-dot", style: { background: agentColor(it.agent) } }),
+          el("span", { text: it.agent || "?" }),
+        ]),
+        el("span", { class: "if-arrow mono", text: "\u27f6" }),
         el("span", { class: "if-body", text: it.body || it.kind || "in flight" }),
-        el("span", { class: "if-elapsed mono", text: "elapsed " + elapsed + "s" }),
+        el("span", { class: "if-elapsed mono", text: elapsed + "s" }),
       ]));
     }
   }
@@ -636,11 +708,15 @@
     }
     for (const ev of items) {
       const cls = kindClass(ev.kind);
+      const agentId = ev.agent_id || "";
       host.appendChild(el("div", { class: "feed-row" }, [
         el("span", { class: "feed-ts mono", text: fmtTime(ev.timestamp || ev.timestamp_ms || Date.now()) }),
-        el("span", { class: "feed-agent mono", text: ev.agent_id || "—" }),
-        el("span", { class: "feed-kind mono " + cls, text: ev.kind || "—" }),
-        el("span", { class: "feed-summary", text: summarizePayload(ev) }),
+        el("span", { class: "feed-adot", style: { background: agentColor(agentId || null) } }),
+        el("span", { class: "feed-what" }, [
+          el("b", { text: agentId || "system" }),
+          el("span", { text: " " + summarizePayload(ev) }),
+        ]),
+        el("span", { class: "feed-kindchip mono " + cls, text: (ev.kind || "\u2014").split(".")[0] }),
       ]));
     }
     // Restore scroll position
@@ -981,61 +1057,52 @@
     const sCls = chainStatusClass(chain.status);
     const glyph = chainStatusGlyph(chain.status);
 
-    // Agent path: dot + name + arrow.
-    const pathRow = el("div", { class: "chain-path" });
+    // UI v2: custody lane — colored nubs joined by animated links.
+    const lane = el("div", { class: "chain-lane" });
     for (let i = 0; i < path.length; i++) {
       const a = path[i];
-      pathRow.appendChild(el("span", { class: "chain-node mono" }, [
-        el("span", {
-          class: "chain-dot",
-          style: { color: agentColor(a) },
-          text: "●",
-        }),
-        el("span", {
-          class: "chain-aname",
-          style: { color: agentColor(a) },
-          text: a || "?",
-        }),
+      lane.appendChild(el("div", { class: "chain-lnode" }, [
+        el("span", { class: "chain-nub", style: { background: agentColor(a) } }),
+        el("span", { class: "chain-lname mono", text: a || "?" }),
       ]));
       if (i < path.length - 1) {
-        pathRow.appendChild(el("span", { class: "chain-arrow mono", text: "→" }));
+        lane.appendChild(el("div", { class: "chain-llink" }));
       }
     }
+
+    const goal = (Array.isArray(chain.tasks) && chain.tasks.length
+      ? (chain.tasks[0].goal || chain.tasks[0].title || "")
+      : "") || chain.goal || "";
 
     const card = el("article", {
       class: "chain-card status-" + sCls,
       "data-chain-id": chain.chain_id || "",
+      tabindex: "0",
+      role: "button",
+      "aria-label": "expand chain " + shortChainId(chain.chain_id),
     }, [
-      el("div", { class: "chain-card-stripe" }),
-      el("div", { class: "chain-card-meat" }, [
-        el("div", { class: "chain-head mono" }, [
-          el("span", { class: "ch-id", text: "chain " + shortChainId(chain.chain_id) }),
-          el("span", { class: "ch-sep", text: " · " }),
-          el("span", { class: "ch-hops", text: hops + " hops" }),
-          el("span", { class: "ch-sep", text: " · " }),
-          el("span", { class: "ch-dur", text: dur }),
-          el("span", { class: "ch-sep", text: " · " }),
-          el("span", {
-            class: "ch-status status-" + sCls,
-            text: glyph + " " + (chain.status || "unknown"),
-          }),
-        ]),
-        pathRow,
-      ]),
-      el("div", { class: "chain-card-actions" }, [
-        el("button", {
-          class: "chain-view-btn",
-          type: "button",
-          text: "view ↗",
-          onclick: (ev) => {
-            ev.stopPropagation();
-            openChainDrawer(chain.chain_id);
-          },
+      el("div", { class: "chain-meta mono" }, [
+        el("span", { class: "ch-hops", text: hops + (hops === 1 ? " hop" : " hops") }),
+        el("span", { class: "ch-sep", text: "\u00b7" }),
+        el("span", { class: "ch-dur", text: dur }),
+        el("span", { class: "ch-sep", text: "\u00b7" }),
+        el("span", {
+          class: "ch-status status-" + sCls,
+          text: glyph + " " + (chain.status || "unknown"),
         }),
+        el("span", { class: "ch-id", text: shortChainId(chain.chain_id) }),
       ]),
+      lane,
+      goal ? el("div", { class: "chain-desc", text: truncate(goal, 110) }) : null,
     ]);
 
     card.addEventListener("click", () => openChainDrawer(chain.chain_id));
+    card.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        openChainDrawer(chain.chain_id);
+      }
+    });
 
     return card;
   }
@@ -1377,16 +1444,9 @@
     const q = url.searchParams.get("task");
     if (q) openTrace(q);
     const chainQ = url.searchParams.get("chain");
-    if (chainQ) {
-      openChainDrawer(chainQ);
-    } else if (persisted.lastViewedChain) {
-      // Reopen last-viewed chain as a UX nicety, but only if it still appears
-      // in the current (unfiltered) chain set.
-      const exists = (state.chains.items || []).some(
-        (c) => c.chain_id === persisted.lastViewedChain
-      );
-      if (exists) openChainDrawer(persisted.lastViewedChain);
-    }
+    // UI v2: the drawer opens only on an explicit click or ?chain= deep link —
+    // never auto-restored on plain loads.
+    if (chainQ) openChainDrawer(chainQ);
   }
 
   if (document.readyState === "loading") {

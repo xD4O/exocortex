@@ -6750,3 +6750,174 @@ body.shell-v2 {
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   UI v2 — dashboard components rebuilt to the refresh mockup.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* -- topbar searchbox --------------------------------------------- */
+.searchbox {
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 1 240px; min-width: 120px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px;
+  padding: 3px 10px; margin-left: 18px;
+  color: var(--faint); font-size: 12px;
+  text-decoration: none;
+}
+.searchbox:hover { border-color: var(--accent); color: var(--muted); text-decoration: none; }
+.searchbox .kbd {
+  margin-left: auto; font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+  color: var(--faint); background: var(--surface);
+}
+.searchbox .sb-hint { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* -- agent presence cards ------------------------------------------ */
+.happen-agent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.happen-agent.dormant { opacity: .62; }
+.happen-agent .ha-avatar {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+}
+.happen-agent .ha-who { min-width: 0; }
+.happen-agent .ha-nm { font-weight: 600; font-size: 13px; line-height: 1.3; }
+.happen-agent .ha-st {
+  font-size: 11px; color: var(--muted);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.happen-agent .ha-st .live-word { color: var(--good); font-weight: 700; }
+.happen-agent .ha-trace { justify-self: end; }
+.happen-agent .ha-trace svg { display: block; }
+.trace-sweep {
+  stroke-dasharray: 26 74;
+  stroke-dashoffset: 100;
+  animation: ekg-run 2.8s linear infinite;
+}
+
+/* -- in-flight dispatch chips --------------------------------------- */
+.in-flight {
+  display: flex; align-items: center; gap: 10px;
+  border-left: 3px solid var(--accent);
+  font-size: 12.5px;
+}
+.ag-chip { font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.ag-chip .agc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.in-flight .if-arrow { color: var(--faint); flex: none; }
+.in-flight .if-body { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.in-flight .if-elapsed { font-size: 11px; color: var(--accent); flex: none; }
+
+/* -- event feed rows ------------------------------------------------- */
+.feed-row {
+  display: grid;
+  grid-template-columns: 56px 10px minmax(0, 1fr) auto;
+  gap: 8px; align-items: baseline;
+  padding: 4px 4px; border-radius: 6px;
+  font-size: 12px;
+}
+.feed-row:hover { background: var(--surface-2); }
+.feed-row .feed-ts { font-size: 10.5px; color: var(--faint); }
+.feed-row .feed-adot { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
+.feed-row .feed-what {
+  color: var(--muted); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.feed-row .feed-what b { color: var(--text); font-weight: 600; }
+.feed-row .feed-kindchip {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+  color: var(--faint);
+}
+.feed-row .feed-kindchip.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border)); }
+.feed-row .feed-kindchip.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.feed-row .feed-kindchip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); }
+
+/* -- grown stats as cards -------------------------------------------- */
+.grown-stats {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.grown-stat {
+  border: 1px solid var(--border-soft); border-radius: 8px;
+  padding: 8px 12px;
+  display: flex; flex-direction: column;
+}
+.grown-stat .k {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint);
+}
+.grown-stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* -- chain cards: mockup custody lane --------------------------------- */
+.chain-card {
+  display: block;
+  grid-template-columns: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: var(--surface);
+  overflow: hidden;
+}
+.chain-card .chain-meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; color: var(--faint);
+  margin-bottom: 8px;
+}
+.chain-card .chain-meta .ch-hops { color: var(--accent-2); font-weight: 700; }
+.chain-card .chain-meta .ch-id { margin-left: auto; color: var(--faint); }
+.chain-card .chain-meta .ch-status.status-ok { color: var(--good); }
+.chain-card .chain-meta .ch-status.status-bad { color: var(--danger); }
+.chain-card .chain-meta .ch-status.status-running { color: var(--accent); }
+.chain-card .chain-lane { display: flex; align-items: center; min-width: 0; }
+.chain-card .chain-lnode { display: flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; }
+.chain-card .chain-nub {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  box-shadow: 0 0 0 3px var(--surface-2);
+}
+.chain-card .chain-lname {
+  font-size: 10.5px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chain-card .chain-llink {
+  flex: 1 1 14px; height: 2px; min-width: 14px;
+  margin: 0 6px;
+  background: linear-gradient(90deg, var(--border), var(--accent-2), var(--border));
+  position: relative;
+}
+.chain-card .chain-llink::after {
+  content: "▸"; position: absolute; right: -2px; top: 50%;
+  transform: translateY(-58%);
+  color: var(--accent-2); font-size: 10px; line-height: 1;
+}
+/* violet pulse travels each link left→right, hop by hop */
+.chain-card .chain-llink::before {
+  content: ""; position: absolute; top: 50%; left: 0;
+  width: 6px; height: 6px; margin-top: -3px; border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 5px 1px var(--accent-2),
+              0 0 14px 3px color-mix(in srgb, var(--accent-2) 40%, transparent);
+  opacity: 0;
+}
+.chain-card .chain-lane > .chain-llink:nth-child(2)::before { animation: chain-flow-a 3.2s linear infinite; }
+.chain-card .chain-lane > .chain-llink:nth-child(4)::before { animation: chain-flow-b 3.2s linear infinite; }
+@keyframes chain-flow-a {
+  0% { left: 0; opacity: 0; } 6% { opacity: .95; } 42% { opacity: .95; }
+  50%, 100% { left: calc(100% - 6px); opacity: 0; }
+}
+@keyframes chain-flow-b {
+  0%, 50% { left: 0; opacity: 0; } 56% { opacity: .95; } 92% { opacity: .95; }
+  100% { left: calc(100% - 6px); opacity: 0; }
+}
+.chain-card .chain-desc {
+  margin-top: 8px; font-size: 12px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chain-card .chain-llink::before { display: none; }
+  .trace-sweep { animation: none; opacity: 0; }
+}
