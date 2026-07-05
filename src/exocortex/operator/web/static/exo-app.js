@@ -504,6 +504,8 @@
 
   // ═════════════════════ dashboard ═════════════════════
   let chainMinHops = 1;
+  let chainKind = "all";
+  const chainAgentsOff = new Set();   // agents the operator toggled off
   let chainCache = [];
 
   LOADERS.dashboard = async function () {
@@ -652,6 +654,7 @@
 
     // ---- chains ----
     chainCache = chainsRes.items || [];
+    buildChainAgentFilters();
     renderChains();
   };
 
@@ -739,11 +742,57 @@
     return { what: what || "task", did: did.join(" \u00b7 ") };
   }
 
+  function chainIsConversation(c) {
+    const goal = ((c.tasks && c.tasks[0] && c.tasks[0].goal_preview) || c.goal || "");
+    return /multi-agent conversation|conversation with .+ about:/i.test(goal);
+  }
+  // The coordinator (first agent on the path) dispatches nearly every chain,
+  // so filtering on it would blank the list — chips filter on the agents the
+  // work was handed TO.
+  function chainExecutors(c) {
+    const path = chainAgents(c);
+    return path.length > 1 ? path.slice(1) : path;
+  }
+  function buildChainAgentFilters() {
+    const host = $("chain-agent-filters");
+    if (!host) return;
+    const seen = new Map();
+    for (const c of chainCache) {
+      for (const a of chainExecutors(c)) seen.set(a, (seen.get(a) || 0) + 1);
+    }
+    empty(host);
+    if (!seen.size) { host.style.display = "none"; return; }
+    host.style.display = "";
+    host.appendChild(el("span", {
+      class: "mono",
+      style: { fontSize: "9.5px", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--faint)" },
+      text: "handed to",
+    }));
+    for (const [a, n] of [...seen.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8)) {
+      const off = chainAgentsOff.has(a);
+      const chip = el("button", { class: "filter-chip" + (off ? " off" : " on"), type: "button", title: n + " chains" }, [
+        el("span", { class: "dot", style: { background: agentColor(a) } }), a,
+      ]);
+      chip.addEventListener("click", () => {
+        if (chainAgentsOff.has(a)) { chainAgentsOff.delete(a); chip.classList.add("on"); chip.classList.remove("off"); }
+        else { chainAgentsOff.add(a); chip.classList.remove("on"); chip.classList.add("off"); }
+        renderChains();
+      });
+      host.appendChild(chip);
+    }
+  }
   function renderChains() {
     const host = $("chains-list");
-    const items = chainCache.filter((c) => Math.max(1, chainAgents(c).length - 1) >= chainMinHops);
+    const items = chainCache.filter((c) => {
+      const path = chainAgents(c);
+      if (Math.max(1, path.length - 1) < chainMinHops) return false;
+      if (chainExecutors(c).some((a) => chainAgentsOff.has(a))) return false;   // hide chains handed to toggled-off agents
+      if (chainKind === "conversation" && !chainIsConversation(c)) return false;
+      if (chainKind === "dispatch" && chainIsConversation(c)) return false;
+      return true;
+    });
     $("chains-count").textContent = items.length;
-    if (!items.length) return note(host, "no chains ≥" + chainMinHops + " hops — agents form chains when they pass parent_task_id to dispatch_task");
+    if (!items.length) return note(host, "no chains match — adjust the agent / kind / hop filters above");
     empty(host);
     for (const c of items.slice(0, 12)) {
       const path = chainAgents(c);
@@ -782,6 +831,13 @@
       host.appendChild(card);
     }
   }
+  document.querySelectorAll("#chain-kind-chips button").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll("#chain-kind-chips button").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      chainKind = b.dataset.ckind;
+      renderChains();
+    }));
   document.querySelectorAll("#chain-hop-chips button").forEach((b) =>
     b.addEventListener("click", () => {
       document.querySelectorAll("#chain-hop-chips button").forEach((x) => x.classList.remove("on"));

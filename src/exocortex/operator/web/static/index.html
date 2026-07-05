@@ -192,6 +192,11 @@ try{var _t=localStorage.getItem("exo-theme");if(_t&&_t!=="auto")document.documen
             <h2>Handoff chains</h2>
             <span class="count num" id="chains-count">0</span>
             <div class="tools">
+              <div class="chip-row" role="tablist" aria-label="chain kind" id="chain-kind-chips">
+                <button class="on" data-ckind="all" type="button">all</button>
+                <button data-ckind="conversation" type="button">convos</button>
+                <button data-ckind="dispatch" type="button">dispatches</button>
+              </div>
               <div class="chip-row" role="tablist" aria-label="min hops" id="chain-hop-chips">
                 <button class="on" data-minhops="1" type="button">all</button>
                 <button data-minhops="2" type="button">≥2</button>
@@ -199,6 +204,7 @@ try{var _t=localStorage.getItem("exo-theme");if(_t&&_t!=="auto")document.documen
               </div>
             </div>
           </div>
+          <div class="panel-h" id="chain-agent-filters" style="gap:6px;"></div>
           <div class="panel-b" id="chains-list"><div class="empty-note">no chains yet</div></div>
         </section>
       </section>
