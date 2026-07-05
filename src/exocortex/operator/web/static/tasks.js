@@ -27,12 +27,16 @@ const { truncate, agentColor, FALLBACK_AGENT_COLOR } = window.Exo;
 // Constants — palette + behaviour
 // ---------------------------------------------------------------------------
 
+function cssVarT(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
 const STATUS_COLOR = {
-  proposed:    "#8b9bab",
-  routed:      "#3a6f9e",
-  in_progress: "#58a6ff",
-  completed:   "#7ee787",
-  failed:      "#f85149",
+  get proposed() { return cssVarT("--muted", "#8593A9"); },
+  get routed() { return cssVarT("--accent-2", "#A18BF5"); },
+  get in_progress() { return cssVarT("--accent", "#2FD0BC"); },
+  get completed() { return cssVarT("--good", "#3FBF7F"); },
+  get failed() { return cssVarT("--danger", "#E86A6A"); },
 };
 const STATUS_GLYPH = {
   proposed: "○",

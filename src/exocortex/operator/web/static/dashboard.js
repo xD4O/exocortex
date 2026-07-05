@@ -586,7 +586,7 @@
       host.appendChild(el("div", {
         class: "happen-agent" + (active ? " active" : ""),
       }, [
-        el("span", { class: "ha-dot" + (active ? " pulse" : ""), text: active ? "●" : "○" }),
+        el("span", { class: "ha-dot" + (active ? " pulse" : ""), style: { color: agentColor(id) }, text: active ? "●" : "○" }),
         el("span", { class: "ha-id mono", text: id }),
         el("span", { class: "ha-meta mono", text:
           (entry.lastSeen ? "(" + fmtRelative(entry.lastSeen) : "(idle")

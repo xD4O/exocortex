@@ -88,13 +88,17 @@
   ];
   const SECTION_KEYS = SECTION_DEFS.map((d) => d.key);
 
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
   const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
-    operator: "#e6edf3",
+    get codex() { return cssVar("--ag-codex", "#DE4A64"); },
+    get hermes() { return cssVar("--ag-hermes", "#0FA093"); },
+    get claude() { return cssVar("--ag-claude", "#8A66EC"); },
+    get claude_code() { return cssVar("--ag-claude", "#8A66EC"); },
+    get openclaw() { return cssVar("--ag-openclaw", "#3E8FD8"); },
+    get operator() { return cssVar("--ag-operator", "#8593A9"); },
   };
 
   // ---------------------------------------------------------------------

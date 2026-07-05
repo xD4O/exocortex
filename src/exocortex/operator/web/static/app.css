@@ -6614,3 +6614,139 @@ body.shell-v2 {
   filter: drop-shadow(0 0 2.5px var(--accent));
 }
 @keyframes ekg-run { to { stroke-dashoffset: 0; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   UI v2 — component skin. Visual overrides that bring every page's
+   surfaces to the refresh-mockup treatment: rounded shadowed panels,
+   condensed display headers, KPI tiles, card polish, chain nubs.
+   Layout-neutral: radius / border / shadow / typography only.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* -- panel shells ------------------------------------------------ */
+.dash-panel,
+.tasks-panel,
+.dbg2-panel,
+.hover-panel,
+.chat-zone,
+.mem-chat {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  background: var(--surface);
+}
+.dash-panel-head { border-bottom: 1px solid var(--border-soft); }
+
+/* -- panel titles: condensed display face ------------------------ */
+.dash-panel-head h2,
+.dbg2-panel-title,
+.chat-zone-head h2,
+.trace-panel h2 {
+  font-family: var(--disp);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+/* -- KPI tiles ---------------------------------------------------- */
+.dash-kpi {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.dash-kpi .kpi-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.dash-kpi .kpi-num {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.dash-kpi .kpi-delta {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.dash-kpi.attention {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: linear-gradient(180deg, var(--warn-wash), var(--surface) 70%);
+}
+.dash-kpi .kpi-spark .spark-dot,
+.dash-kpi .kpi-spark circle {
+  animation: v2-dot-breathe 3s ease-in-out infinite;
+}
+@keyframes v2-dot-breathe {
+  0%, 100% { filter: none; }
+  50%      { filter: drop-shadow(0 0 3px var(--accent)); }
+}
+
+/* -- cards -------------------------------------------------------- */
+.chain-card,
+.tasks-now-card,
+.tasks-failed-card,
+.reflect-card,
+.pq-card,
+.ag-card,
+.conv-row,
+.attn-row {
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+}
+.happen-agent,
+.in-flight {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: var(--surface);
+}
+.happen-agent + .happen-agent,
+.in-flight + .in-flight { margin-top: 6px; }
+
+/* -- section sub-headers: hairline rule --------------------------- */
+.happen-section .happen-h,
+.grown-section .grown-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.happen-section .happen-h::after,
+.grown-section .grown-h::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+/* -- chain custody lane: colored nubs + violet arrows -------------- */
+.chain-path .chain-aname::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  vertical-align: -1px;
+  box-shadow: 0 0 0 3px var(--surface-2);
+}
+.chain-path .chain-arrow { color: var(--accent-2); }
+
+/* -- controls ------------------------------------------------------ */
+.dash-select {
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}

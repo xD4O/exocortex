@@ -26,21 +26,27 @@
 (function () {
   "use strict";
 
+  // UI v2: read from the theme's CSS tokens so the swimlane always matches
+  // the active theme (falls back to the canonical dark values).
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
   const AGENT_COLORS = {
-    codex: "#58a6ff",
-    hermes: "#d29922",
-    claude: "#7ee787",
-    claude_code: "#7ee787",
-    openclaw: "#bb6bd9",
+    get codex() { return cssVar("--ag-codex", "#DE4A64"); },
+    get hermes() { return cssVar("--ag-hermes", "#0FA093"); },
+    get claude() { return cssVar("--ag-claude", "#8A66EC"); },
+    get claude_code() { return cssVar("--ag-claude", "#8A66EC"); },
+    get openclaw() { return cssVar("--ag-openclaw", "#3E8FD8"); },
   };
   const FALLBACK_AGENT_COLOR = "#8b949e";
   const STATUS_COLORS = {
-    running:   "#58a6ff",
-    completed: "#7ee787",
-    succeeded: "#7ee787",
-    failed:    "#f85149",
-    cancelled: "#8b9bab",
-    pending:   "#d29922",
+    get running() { return cssVar("--accent-2", "#A18BF5"); },
+    get completed() { return cssVar("--good", "#3FBF7F"); },
+    get succeeded() { return cssVar("--good", "#3FBF7F"); },
+    get failed() { return cssVar("--danger", "#E86A6A"); },
+    get cancelled() { return cssVar("--muted", "#8593A9"); },
+    get pending() { return cssVar("--warn", "#E3AE4A"); },
   };
 
   // Viewbox geometry (internal "design" coordinates).
