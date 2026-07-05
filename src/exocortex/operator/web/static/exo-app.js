@@ -383,97 +383,142 @@
 
   // ═════════════════════ chain toaster ═════════════════════
   const toaster = $("chain-toaster");
-  function openToasterFor(chain) {
+  async function traceEvents(chain) {
+    // The chains endpoint strips payloads; per-task traces carry the full
+    // story (dispatch from_agent, memory record ids, tool argv...).
+    const out = [];
+    const seenTask = new Set(), seenEv = new Set();
+    for (const t of (chain.tasks || []).slice(0, 4)) {
+      if (seenTask.has(t.task_id)) continue;
+      seenTask.add(t.task_id);
+      try {
+        const tr = await api("/api/tasks/" + encodeURIComponent(t.task_id) + "/trace");
+        for (const e of (tr.events || [])) {
+          // trace events carry ISO `timestamp` + `id`; normalize to the
+          // chains-endpoint shape the rest of the toaster expects
+          if (!e.timestamp_ms) e.timestamp_ms = Date.parse(e.timestamp) || 0;
+          const id = e.id || e.event_id || (e.kind + "|" + e.timestamp_ms + "|" + e.agent_id);
+          if (seenEv.has(id)) continue;
+          seenEv.add(id);
+          out.push(e);
+        }
+      } catch (_) { /* fall back below */ }
+    }
+    return (out.length ? out : (chain.events || []).slice())
+      .sort((a, b) => (a.timestamp_ms || 0) - (b.timestamp_ms || 0));
+  }
+
+  async function openToasterFor(chain) {
     const t0 = Date.parse(chain.started_at) || Date.now();
     const t1 = Math.max(t0 + 1000, Date.parse(chain.ended_at) || Date.now());
     const span = t1 - t0;
-    const path = chainAgents(chain);
-    const hops = Math.max(1, path.length - 1);
+    const evs = await traceEvents(chain);
+
+    // --- who really dispatched? the handoff payload knows. ---
+    const basePath = chainAgents(chain);
+    let dispatcher = basePath[0] || "?";
+    for (const e of evs) {
+      const p = e.payload || {};
+      if (e.kind === "handoff.initiated" && p.from_agent) { dispatcher = p.from_agent; break; }
+    }
+    // custody-ordered display path: dispatcher, then each session opener
+    const displayPath = [dispatcher];
+    for (const e of evs) {
+      if (e.kind === "session.opened" && e.agent_id && !displayPath.includes(e.agent_id)) {
+        displayPath.push(e.agent_id);
+      }
+    }
+    for (const a of basePath) {
+      if (!displayPath.includes(a) && a !== "exocortex") displayPath.push(a);
+    }
+
+    const laneOf = (e) => {
+      const p = e.payload || {};
+      if (e.kind === "handoff.initiated") return p.from_agent || e.agent_id || dispatcher;
+      if (!e.agent_id || (e.kind || "").startsWith("task.")) return dispatcher;
+      return e.agent_id;
+    };
+    const SKIP_KINDS = new Set(["task.status_changed", "session.status_changed"]);
+    const evLabel = (e) => {
+      const k = e.kind || "";
+      const p = e.payload || {};
+      if (k.startsWith("tool.")) return k.split(".")[1] || "tool";
+      if (k === "handoff.initiated") {
+        return p.to_agent ? "dispatch \u2192 " + p.to_agent : "handoff back";
+      }
+      const m = {
+        "task.created": "created", "task.dispatched": "dispatch",
+        "session.opened": "accept", "memory.written": "memory_write",
+        "memory.read": "memory_read", "task.completed": "completed",
+        "task.failed": "failed", "session.closed": "close",
+      };
+      return m[k] || k.split(".").pop();
+    };
+
+    const hops = Math.max(1, displayPath.length - 1);
     const story = chainStory(chain);
     $("ct-title").textContent = truncate(story.what, 64);
     $("ct-meta").textContent =
-      hops + (hops === 1 ? " hop" : " hops") + " · " + fmtDur(span) + " · " + (chain.status || "")
-      + (story.did ? " · " + story.did : "");
-    // custody path
+      hops + (hops === 1 ? " hop" : " hops") + " \u00b7 " + fmtDur(span) + " \u00b7 " + (chain.status || "")
+      + (story.did ? " \u00b7 " + story.did : "");
+
+    // custody path row
     const cp = $("ct-path"); empty(cp);
-    path.forEach((a, i) => {
+    displayPath.forEach((a, i) => {
       cp.appendChild(el("div", { class: "chain-node" }, [
         el("span", { class: "nub", style: { background: agentColor(a) } }),
         el("span", { class: "nm", text: a }),
       ]));
-      if (i < path.length - 1) cp.appendChild(el("div", { class: "chain-link" }));
+      if (i < displayPath.length - 1) cp.appendChild(el("div", { class: "chain-link" }));
     });
-    // ruler: 5 ticks
+
+    // ruler
     const ruler = $("ct-ruler"); empty(ruler);
     for (let k = 0; k <= 4; k++) {
-      const t = new Date(t0 + (span * k) / 4);
       ruler.appendChild(el("span", {
         style: { left: (k * 25) + "%" },
-        text: fmtTime(t.getTime()),
+        text: fmtTime(t0 + (span * k) / 4),
       }));
     }
-    // lanes: a CUSTODY timeline. Each agent holds one contiguous block for
-    // the window it owned the task; vertical markers show the literal
-    // handoff moments where custody crossed lanes.
+
+    // --- custody segments: dispatcher holds; session.opened hands off;
+    //     session.closed hands back. Blocks labeled by real activity. ---
     const lanes = $("ct-lanes"); empty(lanes);
     lanes.style.position = "relative";
-    const SKIP_KINDS = new Set(["task.status_changed", "session.status_changed"]);
-    const evLabel = (k) => {
-      if (!k) return "event";
-      if (k.startsWith("tool.")) return k.split(".")[1] || "tool";
-      const m = {
-        "task.created": "created", "task.dispatched": "dispatch",
-        "handoff.initiated": "handoff", "session.opened": "accept",
-        "memory.written": "memory_write", "memory.read": "memory_read",
-        "task.completed": "completed", "task.failed": "failed",
-        "session.closed": "close",
-      };
-      return m[k] || k.split(".").pop();
-    };
-    const evsSorted = (chain.events || []).slice()
-      .sort((a, b) => (a.timestamp_ms || 0) - (b.timestamp_ms || 0));
-    const coord = path[0] || "?";
-
-    // --- custody switches: coordinator holds first; session.opened hands
-    // custody to that agent; session.closed hands it back. ---
-    const segs = [];           // {agent, s, e}
-    const handoffs = [];       // {t, to}
-    let holder = coord, heldSince = t0;
-    for (const e of evsSorted) {
+    const segs = [];
+    const handoffs = [];
+    let holder = dispatcher, heldSince = t0;
+    for (const e of evs) {
       const t = e.timestamp_ms || t0;
-      const a = e.agent_id || coord;
-      if (e.kind === "session.opened" && a !== holder) {
+      if (e.kind === "session.opened" && e.agent_id && e.agent_id !== holder) {
         segs.push({ agent: holder, s: heldSince, e: t });
-        handoffs.push({ t, to: a });
-        holder = a; heldSince = t;
-      } else if (e.kind === "session.closed" && a === holder && holder !== coord) {
+        handoffs.push({ t, to: e.agent_id });
+        holder = e.agent_id; heldSince = t;
+      } else if (e.kind === "session.closed" && e.agent_id === holder && holder !== dispatcher) {
         segs.push({ agent: holder, s: heldSince, e: t });
-        handoffs.push({ t, to: coord });
-        holder = coord; heldSince = t;
+        handoffs.push({ t, to: dispatcher });
+        holder = dispatcher; heldSince = t;
       }
     }
     segs.push({ agent: holder, s: heldSince, e: t1 });
 
-    // label each custody block with what its holder actually did in it
     for (const seg of segs) {
-      const inside = evsSorted.filter((e) => {
+      const inside = evs.filter((e) => {
         const t = e.timestamp_ms || t0;
-        const a = e.agent_id || coord;
-        return a === seg.agent && t >= seg.s - 500 && t <= seg.e + 500 && !SKIP_KINDS.has(e.kind);
+        return laneOf(e) === seg.agent && t >= seg.s - 500 && t <= seg.e + 500 && !SKIP_KINDS.has(e.kind);
       });
       const counts = [];
       for (const e of inside) {
-        const k = evLabel(e.kind);
+        const k = evLabel(e);
         const last = counts[counts.length - 1];
         if (last && last.k === k) last.n += 1;
         else counts.push({ k, n: 1 });
       }
       seg.label = counts.map((c) => c.k + (c.n > 1 ? " \u00d7" + c.n : "")).join(" \u00b7 ")
-        || (seg.agent === coord ? "waiting" : "working");
+        || (seg.agent === dispatcher ? "waiting" : "working");
     }
 
-    // render one lane per custody-path agent, blocks = its custody windows
-    for (const a of path) {
+    for (const a of displayPath) {
       const track = el("div", { class: "g-track" });
       for (const seg of segs) {
         if (seg.agent !== a) continue;
@@ -497,7 +542,6 @@
         track,
       ]));
     }
-    // literal handoff markers: vertical connectors at each custody transfer
     for (const h of handoffs) {
       const leftPct = Math.max(0, Math.min(99, ((h.t - t0) / span) * 100));
       lanes.appendChild(el("div", {
@@ -507,24 +551,44 @@
       }, [el("span", { class: "gh-label", style: { color: agentColor(h.to) }, text: "\u2192 " + h.to })]));
     }
 
-    // ledger
+    // ledger (payload-aware previews)
     const led = $("ct-events"); empty(led);
-    for (const ev of (chain.events || []).slice(0, 24)) {
+    for (const ev of evs.slice(0, 24)) {
+      const p = ev.payload || {};
+      const preview = ev.payload_preview
+        || (ev.kind === "handoff.initiated" && p.from_agent ? p.from_agent + " \u2192 " + (p.to_agent || "done") : "")
+        || (ev.kind === "memory.written" && p.record_id ? "record " + String(p.record_id).slice(0, 8) : "")
+        || (ev.kind === "task.created" && p.goal ? truncate(String(p.goal).replace(/\s+/g, " "), 80) : "");
       led.appendChild(feedRowEl({
-        kind: ev.kind, agent_id: ev.agent_id,
-        timestamp_ms: ev.timestamp_ms, payload_preview: ev.payload_preview || "",
+        kind: ev.kind, agent_id: laneOf(ev) === dispatcher && !ev.agent_id ? dispatcher : ev.agent_id,
+        timestamp_ms: ev.timestamp_ms, payload_preview: preview,
       }));
     }
-    // foot
+
+    // foot chips + memory jump
     const foot = $("ct-foot"); empty(foot);
-    const chips = [
+    for (const [k, v] of [
       ["chain", String(chain.chain_id).slice(0, 8)],
-      ["events", (chain.events || []).length],
-      ["agents", path.length],
+      ["events", evs.length],
+      ["agents", displayPath.length],
       ["tasks", (chain.tasks || []).length],
-    ];
-    for (const [k, v] of chips) {
+    ]) {
       foot.appendChild(el("span", { class: "ct-chip" }, [k + " ", el("b", { class: "num", text: String(v) })]));
+    }
+    const memEv = evs.find((e) => e.kind === "memory.written" && e.payload && e.payload.record_id);
+    if (memEv) {
+      foot.appendChild(el("span", {
+        class: "ct-chip link",
+        onclick: () => {
+          closeToaster();
+          showPage("constellation");
+          cons.selId = memEv.payload.record_id;
+          setTimeout(() => { renderConsDetail(); consDrawIfStill(); }, 200);
+        },
+      }, [
+        el("span", { class: "cdot", style: { width: "7px", height: "7px", borderRadius: "50%", background: "var(--accent-2)" } }),
+        "view written memory in constellation \u2197",
+      ]));
     }
     toaster.classList.add("open");
   }
