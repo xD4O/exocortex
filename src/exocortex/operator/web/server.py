@@ -77,40 +77,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
 
-    @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "index.html"))
+    # Assets must revalidate on every load (etag/304 keeps it cheap on
+    # loopback) — heuristic caching otherwise serves stale css/js for days
+    # after a deploy.
+    @app.middleware("http")
+    async def _asset_cache_control(request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
-    @app.get("/memory", include_in_schema=False)
-    async def memory_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "memory.html"))
+    # UI v3 is a single-page app: every page route serves the same shell;
+    # the client router activates the right view from location.pathname.
+    def _spa() -> FileResponse:
+        # no-cache: browsers must revalidate the shell on every navigation,
+        # otherwise a stale pre-SPA page (or an old shell) can be served from
+        # heuristic cache after a deploy.
+        return FileResponse(
+            str(STATIC_DIR / "index.html"),
+            headers={"Cache-Control": "no-cache"},
+        )
 
-    @app.get("/agents", include_in_schema=False)
-    async def agents_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "agents.html"))
-
-    @app.get("/chat", include_in_schema=False)
-    async def chat_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "chat.html"))
-
-    @app.get("/profile", include_in_schema=False)
-    async def profile_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "profile.html"))
-
-    @app.get("/debug", include_in_schema=False)
-    async def debug_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "debug.html"))
-
-    @app.get("/conversations", include_in_schema=False)
-    async def conversations_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "conversations.html"))
-
-    @app.get("/tasks", include_in_schema=False)
-    async def tasks_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "tasks.html"))
-
-    @app.get("/reflect", include_in_schema=False)
-    async def reflect_page() -> FileResponse:
-        return FileResponse(str(STATIC_DIR / "reflect.html"))
+    for _route in (
+        "/", "/memory", "/agents", "/chat", "/profile",
+        "/debug", "/conversations", "/tasks", "/reflect", "/settings",
+    ):
+        @app.get(_route, include_in_schema=False)
+        async def _page(_r: str = _route) -> FileResponse:  # noqa: B008
+            return _spa()
 
     return app
