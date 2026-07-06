@@ -2033,11 +2033,28 @@
     if (!pItems.length) note(list, "no pending insights — agents propose them via insight_propose; reflection runs add more");
     else {
       empty(list);
+      const KIND_GLYPH = { contradiction: "⚡", synthesis: "◈", pattern: "≋", gap: "◌" };
       for (const ins of pItems) {
-        const text = ins.text || ins.claim || ins.insight || ins.content || JSON.stringify(ins);
         const conf = typeof ins.confidence === "number" ? ins.confidence : null;
+        const refs = ins.refs || [];
         const card = el("div", { class: "insight-card" }, [
-          el("div", { class: "it", text: truncate(text, 160) }),
+          el("div", { class: "cd-type", style: { color: "var(--accent-2)" }, text: (KIND_GLYPH[ins.kind] || "•") + " " + (ins.kind || "insight") }),
+          el("div", { class: "it", text: ins.title || "(untitled)" }),
+          ins.detail ? el("div", { style: { fontSize: "12px", color: "var(--muted)" }, text: truncate(ins.detail, 240) }) : null,
+          refs.length ? el("div", { class: "cite-row" }, refs.slice(0, 4).map((rid) =>
+            el("span", {
+              class: "cite",
+              onclick: () => { showPage("constellation"); cons.selId = rid; setTimeout(() => { renderConsDetail(); consDrawIfStill(); }, 150); },
+            }, [
+              el("span", { class: "cdot", style: { background: "var(--accent-2)" } }),
+              el("span", { text: truncate(String(rid), 8) }),
+            ]))) : null,
+          ins.suggested_action ? el("div", { class: "chat-footnote", text: "suggested: " + truncate(
+            typeof ins.suggested_action === "string"
+              ? ins.suggested_action
+              : (ins.suggested_action.description || ins.suggested_action.action
+                 || Object.values(ins.suggested_action).filter((v) => typeof v === "string").join(" · ")),
+            140) }) : null,
           conf != null ? el("div", { class: "iconf" }, [
             el("span", { class: "cbar" }, [el("i", { style: { width: (conf * 100) + "%" } })]),
             el("span", { class: "num", text: "confidence " + conf.toFixed(2) }),
@@ -2061,10 +2078,9 @@
     else {
       empty(hist);
       for (const ins of resolved.slice(0, 10)) {
-        const text = ins.text || ins.claim || ins.insight || ins.content || "";
         hist.appendChild(el("div", { class: "promo-row" }, [
-          el("span", { class: "pd num", text: ins.status || "" }),
-          el("span", { class: "pt", text: truncate(text, 90) }),
+          el("span", { class: "pd num", text: ins.kind || "" }),
+          el("span", { class: "pt", text: truncate(ins.title || "", 90) }),
           el("span", { class: "pto", text: "→ " + (ins.status === "accepted" ? "memory" : "dismissed") }),
         ]));
       }
