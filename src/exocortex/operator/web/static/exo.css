@@ -1020,3 +1020,14 @@ body[data-density="compact"] .panel-b { padding: 8px 12px 10px; }
   box-shadow: inset 2px 0 0 var(--accent-2);
 }
 #ct-events .feed-row.dim { opacity: .32; }
+
+/* toaster maximize: full-workspace reading mode */
+.chain-toaster.maximized {
+  left: 24px !important; right: 24px !important;
+  top: 24px !important; bottom: 24px !important;
+  width: auto; max-height: none;
+  transition: none;
+}
+.chain-toaster.maximized .ct-head { cursor: default; }
+.chain-toaster.maximized .ct-body { padding-bottom: 24px; }
+.chain-toaster.maximized #ct-lanes .g-track { height: 30px; }

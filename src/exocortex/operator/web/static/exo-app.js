@@ -638,7 +638,7 @@
 
     // ledger (payload-aware previews)
     const led = $("ct-events"); empty(led);
-    for (const ev of evs.slice(0, 24)) {
+    for (const ev of evs) {   // full ledger — the toaster body scrolls
       const p = ev.payload || {};
       const preview = ev.payload_preview
         || (ev.kind === "handoff.initiated" && p.from_agent ? p.from_agent + " \u2192 " + (p.to_agent || "done") : "")
@@ -686,8 +686,20 @@
       openToasterFor(chain);
     } catch (e) { console.warn("chain fetch", e); }
   }
+  function setToasterMax(on) {
+    toaster.classList.toggle("maximized", on);
+    $("ct-max").textContent = on ? "\u2751" : "\u26f6";
+    $("ct-max").title = on ? "restore" : "maximize";
+    if (on) {
+      // maximized is anchored by CSS — drop any dragged inline position
+      toaster.style.left = toaster.style.top = toaster.style.right = toaster.style.bottom = "";
+    }
+  }
+  $("ct-max").addEventListener("click", () => setToasterMax(!toaster.classList.contains("maximized")));
+
   function closeToaster() {
     toaster.classList.remove("open");
+    setToasterMax(false);
     setTimeout(() => {
       if (!toaster.classList.contains("open"))
         toaster.style.left = toaster.style.top = toaster.style.right = toaster.style.bottom = "";
@@ -700,6 +712,7 @@
     let on = false, ox = 0, oy = 0;
     drag.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".close")) return;
+      if (toaster.classList.contains("maximized")) return;   // pinned fullscreen
       on = true;
       const r = toaster.getBoundingClientRect();
       ox = e.clientX - r.left; oy = e.clientY - r.top;
