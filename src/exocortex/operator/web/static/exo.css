@@ -1010,3 +1010,13 @@ body[data-density="compact"] .panel-b { padding: 8px 12px 10px; }
   z-index: 3;
 }
 .g-handoff .gh-label { z-index: 4; }
+
+/* swimlane hover → ledger highlight */
+.g-block { cursor: pointer; transition: filter 120ms ease-out; }
+.g-block:hover { filter: brightness(1.25); }
+#ct-events .feed-row { transition: opacity 140ms ease-out, background 140ms ease-out; }
+#ct-events .feed-row.lit {
+  background: color-mix(in srgb, var(--accent-2) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent-2);
+}
+#ct-events .feed-row.dim { opacity: .32; }

@@ -554,7 +554,6 @@
         const wPct = Math.max(1.6, ((seg.e - seg.s) / span) * 100);
         const clampedLeft = Math.min(leftPct, 98);
         const clampedW = Math.min(wPct, 100 - clampedLeft);
-        const wide = clampedW >= 16;
         const block = el("span", {
           class: "g-block", title: seg.label + " \u00b7 " + fmtDur(seg.e - seg.s),
           style: {
@@ -563,22 +562,26 @@
             background: "color-mix(in srgb, " + agentColor(a) + " 78%, transparent)",
             borderColor: "color-mix(in srgb, " + agentColor(a) + " 55%, transparent)",
           },
-        }, wide
-          ? [el("span", { class: "g-txt", text: seg.label }),
-             el("span", { class: "g-dur", text: fmtDur(seg.e - seg.s) })]
-          : []);
+        });
+        // hovering a custody block lights up its recorded events in the
+        // ledger below — the bar is geometry, the ledger is the detail
+        block.addEventListener("mouseenter", () => {
+          const rows = document.querySelectorAll("#ct-events .feed-row");
+          rows.forEach((r) => {
+            const hit = r.dataset.agent === seg.agent
+              && +r.dataset.ts >= seg.s - 500 && +r.dataset.ts <= seg.e + 500;
+            r.classList.toggle("lit", hit);
+            r.classList.toggle("dim", !hit);
+          });
+          const first = document.querySelector("#ct-events .feed-row.lit");
+          if (first) first.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
+        block.addEventListener("mouseleave", () => {
+          document.querySelectorAll("#ct-events .feed-row").forEach((r) => {
+            r.classList.remove("lit", "dim");
+          });
+        });
         track.appendChild(block);
-        if (!wide) {
-          // label sits beside the block, in the agent's color
-          const flip = clampedLeft + clampedW > 72;
-          track.appendChild(el("span", {
-            class: "g-lab-out" + (flip ? " flip" : ""),
-            style: flip
-              ? { right: (100 - clampedLeft) + "%", color: agentColor(a) }
-              : { left: (clampedLeft + clampedW) + "%", color: agentColor(a) },
-            text: seg.label,
-          }));
-        }
       }
       const lane = el("div", { class: "g-lane" }, [
         el("span", { class: "g-who ag-chip" }, [
@@ -641,10 +644,13 @@
         || (ev.kind === "handoff.initiated" && p.from_agent ? p.from_agent + " \u2192 " + (p.to_agent || "done") : "")
         || (ev.kind === "memory.written" && p.record_id ? "record " + String(p.record_id).slice(0, 8) : "")
         || (ev.kind === "task.created" && p.goal ? truncate(String(p.goal).replace(/\s+/g, " "), 80) : "");
-      led.appendChild(feedRowEl({
+      const row = feedRowEl({
         kind: ev.kind, agent_id: laneOf(ev) === dispatcher && !ev.agent_id ? dispatcher : ev.agent_id,
         timestamp_ms: ev.timestamp_ms, payload_preview: preview,
-      }));
+      });
+      row.dataset.agent = laneOf(ev);
+      row.dataset.ts = ev.timestamp_ms || 0;
+      led.appendChild(row);
     }
 
     // foot chips + memory jump
