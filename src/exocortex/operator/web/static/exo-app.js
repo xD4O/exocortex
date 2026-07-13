@@ -736,10 +736,11 @@
   let chainCache = [];
 
   LOADERS.dashboard = async function () {
-    const [status, attention, growth, agentsRes, chainsRes, activity, tasksRes] = await Promise.all([
+    const [status, attention, growth, agentsRes, chainsRes, activity, tasksRes, insightsRes] = await Promise.all([
       api("/api/status"), api("/api/dashboard/attention"), api("/api/dashboard/growth"),
       api("/api/agents"), api("/api/handoffs/chains?limit=30"),
       api("/api/activity?limit=120"), api("/api/tasks?limit=200"),
+      api("/api/insights").catch(() => ({ items: [] })),
     ]);
 
     // rail
@@ -773,7 +774,19 @@
     sparkline("spark-agents", hourlyBuckets(evTs, 8));
     $("kpi-agents-delta").textContent = activeNames.length ? activeNames.join(" · ") : "of " + agents.length + " known";
 
-    const attnItems = attention.items || [];
+    const attnItems = (attention.items || []).slice();
+    // pending insights are operator work — surface them, don't let them
+    // sit silent behind the Reflect nav item
+    const pendingIns = (insightsRes.items || []).length;
+    if (pendingIns) {
+      attnItems.push({
+        severity: "info",
+        title: pendingIns + " insight" + (pendingIns === 1 ? "" : "s") + " awaiting review",
+        body: truncate((insightsRes.items[0].title || "") +
+          (pendingIns > 1 ? " · and " + (pendingIns - 1) + " more" : ""), 140),
+        action_url: "/reflect",
+      });
+    }
     $("kpi-attn").textContent = attnItems.length;
     $("kpi-attn-card").classList.toggle("attn", attnItems.length > 0);
     $("kpi-attn-glyph").style.color = attnItems.length ? "var(--warn)" : "var(--good)";
