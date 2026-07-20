@@ -810,10 +810,7 @@
           el("span", { class: "age num", text: fmtRel(Date.parse(it.since) || null) }),
           it.action_url ? el("button", {
             class: "act", type: "button", text: "Open",
-            onclick: () => {
-              const v = PATH_VIEW[String(it.action_url).split("?")[0]];
-              if (v) showPage(v); else location.href = it.action_url;
-            },
+            onclick: () => openAttentionTarget(it),
           }) : null,
         ]));
       }
@@ -896,6 +893,23 @@
     buildChainAgentFilters();
     renderChains();
   };
+
+  // Attention "Open" lands on the actual thing, not a generic page:
+  // ?chain/?task → the custody toaster; /agents?agent=X → that agent's
+  // inspector; /debug?event=X → that failure row, expanded.
+  let pendingAgentOpen = null;
+  let pendingDebugEvent = null;
+  function openAttentionTarget(it) {
+    const url = String(it.action_url || "");
+    const [path, qs] = url.split("?");
+    const params = new URLSearchParams(qs || "");
+    const chainTask = params.get("chain") || params.get("task");
+    if (chainTask) { openToasterByTask(chainTask); return; }
+    const v = PATH_VIEW[path];
+    if (v === "agents" && params.get("agent")) pendingAgentOpen = params.get("agent");
+    if (v === "debug") pendingDebugEvent = params.get("event") || it.related_event_id || null;
+    if (v) showPage(v); else location.href = url;
+  }
 
   function hourlyTrace(hourly, color, live, dormant) {
     const NS = "http://www.w3.org/2000/svg";
@@ -1642,6 +1656,11 @@
         pair.set(k, (pair.get(k) || 0) + 1);
       }
     }
+    if (pendingAgentOpen) {
+      const target = pendingAgentOpen;
+      pendingAgentOpen = null;
+      if (agentsCache.some((x) => (x.agent_id || x.id) === target)) openAgent(target);
+    }
     const rl = $("routes-list");
     if (!pair.size) note(rl, "no multi-agent dispatches yet — routes appear when agents pass parent_task_id");
     else {
@@ -2133,7 +2152,7 @@
       empty(fl);
       for (const f of items.slice(0, 12)) {
         const sev = /failed/.test(f.kind || "") ? "danger" : /rejected|denied/.test(f.kind || "") ? "warn" : "info";
-        const row = el("div", { class: "attn-item " + sev + " fail-row", role: "button", tabindex: "0" }, [
+        const row = el("div", { class: "attn-item " + sev + " fail-row", role: "button", tabindex: "0", "data-event-id": f.event_id }, [
           el("span", { class: "stripe" }),
           el("div", { class: "body" }, [
             el("div", { class: "t", text: (f.kind || "failure") + (f.agent_id ? " — " + f.agent_id : "") }),
@@ -2151,6 +2170,17 @@
           } catch (_) { /* no context */ }
         });
         fl.appendChild(row);
+      }
+    }
+    if (pendingDebugEvent) {
+      const target = pendingDebugEvent;
+      pendingDebugEvent = null;
+      const row = fl.querySelector('[data-event-id="' + target + '"]');
+      if (row) {
+        row.click();                                   // expands its context
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.style.outline = "2px solid var(--accent-2)";
+        setTimeout(() => { row.style.outline = ""; }, 2400);
       }
     }
     // kinds breakdown

@@ -1121,21 +1121,40 @@ def build_router(  # noqa: PLR0915 - single factory, routes are flat by design
 
         # 3. Pending approvals (approval.requested with no matching resolved).
         approval_pending: dict[str, Event] = {}
+        closed_sessions: set[str] = set()
         for ev in events:
             if ev.kind == EventKind.APPROVAL_REQUESTED:
                 approval_pending[str(ev.id)] = ev
             elif ev.kind == EventKind.APPROVAL_RESOLVED:
                 req_id = str(ev.payload.get("request_id") or "")
                 approval_pending.pop(req_id, None)
-        for ev in list(approval_pending.values())[:5]:
+            elif ev.kind == EventKind.SESSION_CLOSED and ev.session_id:
+                closed_sessions.add(str(ev.session_id))
+        live_approvals = [
+            ev for ev in approval_pending.values()
+            # zombie guard: a closed session can never answer its approval,
+            # and anything older than 48h is noise, not operator work
+            if not (ev.session_id and str(ev.session_id) in closed_sessions)
+            and (now - ev.timestamp) <= timedelta(hours=48)
+        ]
+        for ev in live_approvals[:5]:
+            if ev.task_id:
+                # land the operator on the task's custody chain
+                action = f"/?chain={ev.task_id}"
+            elif ev.agent_id:
+                # land on the requesting agent's inspector
+                action = f"/agents?agent={ev.agent_id}"
+            else:
+                action = "/debug"
             items.append(
                 {
                     "kind": "approval_pending",
                     "severity": "medium",
-                    "title": "approval pending",
+                    "title": "approval pending"
+                    + (f" — {ev.agent_id}" if ev.agent_id else ""),
                     "body": str(ev.payload.get("reason") or "agent waiting on operator")[:200],
                     "since": ev.timestamp.isoformat(),
-                    "action_url": "/agents",
+                    "action_url": action,
                     "related_event_id": str(ev.id),
                 }
             )
