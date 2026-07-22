@@ -2069,6 +2069,7 @@
       for (const ins of pItems) {
         const conf = typeof ins.confidence === "number" ? ins.confidence : null;
         const refs = ins.refs || [];
+        const aType = (ins.suggested_action && ins.suggested_action.type) || "none";
         const card = el("div", { class: "insight-card" }, [
           el("div", { class: "cd-type", style: { color: "var(--accent-2)" }, text: (KIND_GLYPH[ins.kind] || "•") + " " + (ins.kind || "insight") }),
           el("div", { class: "it", text: ins.title || "(untitled)" }),
@@ -2093,8 +2094,27 @@
           ]) : null,
           el("div", { class: "iact" }, [
             el("button", {
-              class: "btn-primary", type: "button", text: "Promote",
-              onclick: async () => { try { await apiPost("/api/insights/" + (ins.insight_id || ins.id) + "/accept"); } catch (_) {} LOADERS.reflect(); },
+              // supersede actions truly execute (a correction record is
+              // written to durable memory); other kinds record the verdict
+              // and carry the drafted action in the audit trail.
+              class: "btn-primary", type: "button",
+              text: aType === "supersede" ? "Promote & apply" : "Promote",
+              onclick: async (e) => {
+                const btn = e.target;
+                btn.disabled = true; btn.textContent = "applying…";
+                try {
+                  const res = await apiPost("/api/insights/" + (ins.insight_id || ins.id) + "/act");
+                  const acted = res.acted || {};
+                  btn.textContent = acted.superseded_by
+                    ? "✓ wrote correction " + String(acted.superseded_by).slice(0, 8)
+                    : "✓ accepted";
+                } catch (err) {
+                  btn.textContent = "failed: " + truncate(err.message, 24);
+                  btn.disabled = false;
+                  return;
+                }
+                setTimeout(() => LOADERS.reflect(), 1400);
+              },
             }),
             el("button", {
               class: "btn-ghost", type: "button", text: "Dismiss",
